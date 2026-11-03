@@ -1,0 +1,5 @@
+# Prettier also skips everything in .gitignore, including docs/ and CLAUDE.md.
+.claude/
+apps/ios/
+supabase/functions/
+pnpm-lock.yaml

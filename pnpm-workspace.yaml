@@ -1,0 +1,15 @@
+packages:
+  - apps/web
+  - packages/*
+
+# Supply chain (NFR-SEC-08). Only packages listed here as true may run install
+# scripts; pnpm 11 refuses to install while one isn't listed either way.
+allowBuilds:
+  supabase: true # CLI 3 itself has no install script; its binary is the @supabase/cli-<platform> package
+  sharp: false # ships prebuilt binaries, so its script isn't needed
+  unrs-resolver: false # the same
+
+# A release must be a day old before pnpm installs it.
+minimumReleaseAge: 1440
+
+engineStrict: true
