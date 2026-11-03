@@ -2,10 +2,10 @@ packages:
   - apps/web
   - packages/*
 
-# Supply chain (NFR-SEC-08). Only packages listed here as true may run install
-# scripts; pnpm 11 refuses to install while one isn't listed either way.
+# Supply chain (NFR-SEC-08). No package may run an install script: each one that
+# has a script is listed as false, and pnpm 11 stops if an unlisted one appears.
 allowBuilds:
-  supabase: true # CLI 3 itself has no install script; its binary is the @supabase/cli-<platform> package
+  supabase: false # CLI 3 has no script; its binary is the @supabase/cli-<platform> package
   sharp: false # ships prebuilt binaries, so its script isn't needed
   unrs-resolver: false # the same
 
