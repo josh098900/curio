@@ -1,0 +1,62 @@
+# Kept on this machine only: the docs and Claude's project instructions
+/docs/
+CLAUDE.md
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Secrets. Only the .env.example templates are committed
+.env*
+!.env.example
+
+# Signing keys, certificates and saved sign-in sessions the stack can write
+signing_keys.json
+*.pem
+*.key
+certificates/
+**/playwright/.auth/
+
+# Database dumps, if one is ever taken locally
+/backups/
+
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+dist/
+next-env.d.ts
+*.tsbuildinfo
+.vercel/
+
+# Test, audit and log output
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.lighthouseci/
+*.log
+
+# Supabase CLI state, including the linked project ref
+supabase/.temp/
+supabase/.branches/
+
+# Xcode and Swift
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.build/
+apps/ios/build/
+
+# Apple signing keys and provisioning profiles
+*.p8
+*.p12
+*.mobileprovision
+
+# Python caches from the hook tests
+__pycache__/

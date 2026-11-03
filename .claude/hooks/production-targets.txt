@@ -1,0 +1,12 @@
+# Production identifiers for block_production.py, one per line.
+#
+# List the production Supabase project ref (the 20-letter id in its URL) and,
+# once it exists, the production site's domain. Any Bash command or MCP tool
+# call that mentions one of these is blocked, and so is any remote Supabase
+# CLI command while the linked project is production.
+#
+# Until a line is added here, every remote Supabase CLI command is blocked
+# (fail closed). Add the production ref in task T04, when the projects exist.
+#
+# Refs and domains aren't secrets: they appear in public URLs. Use exact
+# identifiers only; a short word here would block everything that mentions it.
