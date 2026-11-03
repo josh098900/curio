@@ -13,7 +13,8 @@ signing_keys.json
 *.pem
 *.key
 certificates/
-**/playwright/.auth/
+**/.auth/
+.sentryclirc
 
 # Database dumps, if one is ever taken locally
 /backups/

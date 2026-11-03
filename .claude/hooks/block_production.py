@@ -10,14 +10,17 @@ For Bash and MCP tool calls, blocks:
   other than the pinned CLI 3, whose commands this hook doesn't know;
 - Vercel production deployments, promotions, removals and production settings;
 - GitHub workflow runs, secrets, variables or API calls aimed at production, and
-  deployment approvals or environment changes through `gh api`;
+  deployment approvals however they're sent;
 - environment variables named PROD or PRODUCTION, which hide connection strings;
 - Stripe live mode (Curio uses the Stripe sandbox only).
 
 Commands are read the way a shell reads them, as far as a hook can: line
-continuations, `;`, `&&` and pipes, shell keywords, launchers such as `pnpm exec`,
-and the strings given to `bash -c` or `eval`. A script file can't be seen into, so
-a remote command never goes in one (.claude/rules/database.md).
+continuations (read both joined and not, as a comment can end in a backslash),
+`;`, `&&` and pipes, shell keywords, launchers such as `pnpm exec`, the strings
+given to `bash -c` or `eval`, command substitutions, and heredocs that feed a
+shell. A line that won't parse is split on its operators instead, so nothing on
+it goes unread. A script file can't be seen into, so a remote command never goes
+in one (.claude/rules/database.md). If the hook itself fails, it blocks.
 
 Exit code 2 blocks the tool call; the message on stderr goes back to Claude.
 """
@@ -27,6 +30,7 @@ import os
 import re
 import shlex
 import sys
+from collections import namedtuple
 from urllib.parse import urlparse
 
 TARGETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "production-targets.txt")
@@ -35,10 +39,12 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal
 LAUNCHERS = {"npx", "pnpx", "bunx", "pnpm", "yarn", "npm", "exec", "dlx", "sudo", "env", "time", "command",
              "nohup", "nice", "xargs", "if", "then", "elif", "else", "do", "while", "until", "!", "{"}
 # Shells whose `-c` string is a command in its own right; `eval`'s arguments are too.
-SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "csh", "tcsh", "fish"}
 # Commands that never run their arguments, so a CLI name after them is just a word.
 READ_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "ugrep", "ls", "cat", "head", "tail", "less",
              "more", "wc", "git", "which", "type", "man", "file", "stat", "tree", "jq", "cd", "pwd"}
+# Flags that move a command into another folder, as in `pnpm -C <dir>` or `npm --prefix <dir>`.
+FOLDER_FLAGS = {"-C", "--dir", "--prefix", "--cwd"}
 
 # Supabase CLI 3's commands, so `dotenvx run -- supabase db push` is still seen as a call.
 SUPABASE_COMMANDS = {
@@ -63,12 +69,21 @@ SUPABASE_TARGET_FLAGS = {"--project-ref", "--project-id", "--db-url"}
 SUPABASE_VALUE_FLAGS = {"--workdir", "--profile", "-o", "--output", "--network-id", "--dns-resolver",
                         "--output-format", "--log-level", "--agent"}
 HELP = {"--help", "-h"}
+REF_SHAPE = re.compile(r"[a-z]{20}")
+URL_SHAPE = re.compile(r"[a-z][a-z0-9+.-]*://", re.I)
 GH_SENSITIVE = {"workflow", "run", "secret", "variable", "api", "environment", "deployment"}
-GH_APPROVALS = re.compile(r"pending_deployments|deployment_protection_rule|/environments\b")
+GH_ENVIRONMENTS = re.compile(r"/environments\b")
+# Approving or rejecting a deployment, through REST or GraphQL, with gh, curl or anything else.
+APPROVALS = re.compile(r"approveDeployments|rejectDeployments|pending_deployments|deployment_protection_rule", re.I)
 # A shell redirection such as `>`, `2>` or `2>/dev/null`. A bare operator takes the next word.
 REDIRECT = re.compile(r"\d*(?:>>?|<<?|&>)")
-# A word the shell would expand, so the hook can't know its value.
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
+SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+# A word the shell would expand, or a placeholder or pattern, so the hook can't know its value.
 UNRESOLVED = re.compile(r"[$`]")
+UNKNOWN = re.compile(r"[$`{}*?\[\]]")
+
+Parsed = namedtuple("Parsed", "flags bare words target target_flag workdir")
 
 
 def load_targets():
@@ -85,32 +100,60 @@ def block(reason):
     sys.exit(2)
 
 
+def without_heredocs(text):
+    """Drop heredoc bodies, which are data, unless the command reading them is a shell."""
+    kept, delimiter = [], None
+    for line in text.splitlines():
+        if delimiter is not None:
+            if line.strip() == delimiter:
+                delimiter = None
+            continue
+        kept.append(line)
+        match = HEREDOC.search(line)
+        if match and not any(os.path.basename(w).lower() in SHELLS for w in line.split()):
+            delimiter = match.group(2)
+    return "\n".join(kept)
+
+
+def split_line(line):
+    """Split one line into simple commands at ; && || | & ( )."""
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    parts, current = [], []
+    try:
+        for token in lexer:
+            if token and set(token) <= set(";&|()"):
+                if current:
+                    parts.append(current)
+                current = []
+            else:
+                current.append(token)
+    except ValueError:
+        # An unmatched quote, often an apostrophe in a comment: split on the operators instead.
+        pieces = (piece.split() for piece in re.split(r"[;&|()]+", line))
+        return [words for words in ([w.strip("'\"") for w in piece if w.strip("'\"")] for piece in pieces) if words]
+    if current:
+        parts.append(current)
+    return parts
+
+
 def segments(command):
-    """Split a shell command into simple commands at ; && || | & ( ) and newlines."""
+    """Split a shell command into simple commands, reading line continuations both joined and not."""
     parts = []
-    for line in command.replace("\\\n", "").splitlines():
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        current = []
-        try:
-            for token in lexer:
-                if token and set(token) <= set(";&|()"):
-                    if current:
-                        parts.append(current)
-                    current = []
-                else:
-                    current.append(token)
-        except ValueError:
-            current = line.split()
-        if current:
-            parts.append(current)
+    for text in {command, command.replace("\\\n", "")}:
+        for line in without_heredocs(text).splitlines():
+            parts += split_line(line)
     return parts
 
 
 def cli_name(token):
     """The program a word names, as in `node_modules/.bin/supabase` or `supabase@3`. macOS ignores case."""
     return os.path.basename(token).split("@")[0].lower()
+
+
+def is_launcher(token):
+    return os.path.basename(token).lower() in LAUNCHERS or re.fullmatch(r"\w+=.*", token) is not None
 
 
 def nested(seg):
@@ -141,10 +184,23 @@ def launched(seg, name):
             after_flag = True
         elif REDIRECT.match(token):
             after_flag = REDIRECT.fullmatch(token) is not None
-        elif os.path.basename(token).lower() in LAUNCHERS or re.fullmatch(r"\w+=.*", token) or after_flag:
+        elif is_launcher(token) or after_flag:
             after_flag = False
         else:
             return None
+    return None
+
+
+def first_word(args):
+    """The first word of a command's arguments, after any flags and the values of Supabase's value flags."""
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg.startswith("-"):
+            skip = "=" not in arg and arg in SUPABASE_TARGET_FLAGS | SUPABASE_VALUE_FLAGS
+        else:
+            return arg
     return None
 
 
@@ -152,21 +208,21 @@ def loose(seg, name):
     """(word, arguments) when `name` appears later with a command after it, as in `dotenvx run -- supabase db`.
 
     A command that only prints or searches words, such as `echo` or `grep`, never counts. For the
-    Supabase CLI the next word must be one of its commands or a flag, so `npm view supabase versions`
-    isn't mistaken for a call.
+    Supabase CLI, the first word after its flags must be one of its commands, so `find supabase -name x`
+    or `pnpm ls supabase --depth 0` aren't mistaken for calls.
     """
     if not seg or os.path.basename(seg[0]).lower() in READ_ONLY:
         return None
     for i in range(1, len(seg) - 1):
-        following = seg[i + 1]
-        if cli_name(seg[i]) == name and (
-                name != "supabase" or following.startswith("-") or following in SUPABASE_COMMANDS):
+        if cli_name(seg[i]) == name and (name != "supabase" or first_word(seg[i + 1 :]) in SUPABASE_COMMANDS):
             return seg[i], without_redirects(seg[i + 1 :])
     return None
 
 
 def calls(command, name):
     """Yield (word, arguments) for each call to the CLI `name` in a shell command, nested ones included."""
+    for match in SUBSTITUTION.finditer(without_heredocs(command)):
+        yield from calls(match.group(1) or match.group(2) or "", name)
     for seg in segments(command):
         for inner in nested(seg):
             yield from calls(inner, name)
@@ -195,43 +251,48 @@ def without_redirects(args):
 
 
 def parse_supabase(args):
-    """Split `supabase <args>` into its flags, words, explicit target and --workdir."""
-    flags, words, explicit, workdir, i = set(), [], None, None, 0
+    """Split `supabase <args>` into its flags (and those given with no `=value`), words, target and --workdir."""
+    flags, bare, words = set(), set(), []
+    target = target_flag = workdir = None
+    i = 0
     while i < len(args):
         arg = args[i]
         if arg.startswith("-"):
-            name, _, value = arg.partition("=")
+            name, eq, value = arg.partition("=")
             flags.add(name)
+            if not eq:
+                bare.add(name)
             if name == "--remote":
                 # CLI 3: bare `--remote` is the linked project; a target needs `--remote=<ref|branch|url>`.
-                explicit = value or explicit
+                if value:
+                    target, target_flag = value, name
             elif name in SUPABASE_TARGET_FLAGS | SUPABASE_VALUE_FLAGS:
-                if not value and i + 1 < len(args):
+                if not eq and i + 1 < len(args):
                     i += 1
                     value = args[i]
                 if name in SUPABASE_TARGET_FLAGS:
-                    explicit = value
+                    target, target_flag = value, name
                 elif name == "--workdir":
                     workdir = value
         else:
             words.append(arg)
         i += 1
-    return flags, words, explicit, workdir
+    return Parsed(flags, bare, words, target, target_flag, workdir)
 
 
-def supabase_target(flags, words, explicit):
+def supabase_target(p):
     """Return (acts_on_a_remote_project, explicit_target) for a parsed Supabase command."""
-    if flags & HELP and flags <= HELP:
-        return False, None  # help on its own; after `--` or as a flag's value it's just a word
-    if explicit is not None:
-        if flags & {"--db-url", "--remote"} and is_local_url(explicit):
+    if p.bare & HELP and p.flags <= HELP:
+        return False, None  # help on its own; `--help=false`, or help after `--`, runs the command
+    if p.target is not None:
+        if p.target_flag in ("--db-url", "--remote") and is_local_url(p.target):
             return False, None
-        return True, explicit
-    if flags & {"--linked", "--remote"}:
+        return True, p.target
+    if p.flags & {"--linked", "--remote"}:
         return True, None
-    if "--local" in flags or not words:
+    if "--local" in p.bare or not p.words:
         return False, None
-    command, sub = words[0], (words[1] if len(words) > 1 else "")
+    command, sub = p.words[0], (p.words[1] if len(p.words) > 1 else "")
     if command in SUPABASE_LOCAL or sub in SUPABASE_LOCAL_SUB.get(command, set()):
         return False, None
     return True, None
@@ -239,23 +300,38 @@ def supabase_target(flags, words, explicit):
 
 def is_local_url(value):
     """True only for a URL with one local host, so `host1,host2` or `?host=` can't slip a remote one in."""
-    url = urlparse(value)
+    try:
+        url = urlparse(value)
+        host = url.hostname or ""
+    except ValueError:
+        return False
     if "," in url.netloc or "host=" in url.query.lower():
         return False
-    return (url.hostname or "") in LOCAL_HOSTS
+    return host in LOCAL_HOSTS
 
 
 def workdirs(command, workdir, cwd):
-    """Folders the CLI might read its link from (--workdir, SUPABASE_WORKDIR and `cd` targets), and
-    whether any of them comes from a variable the hook can't resolve."""
+    """Folders the CLI might read its link from, and whether any of them is unknown.
+
+    These are --workdir, SUPABASE_WORKDIR, `cd` and `pushd` (after any launchers or keywords),
+    and launcher folder flags such as `pnpm -C`. A SUPABASE_* setting taken from a variable is unknown.
+    """
     found = [workdir] if workdir else []
     pending = [command]
     while pending:
         for seg in segments(pending.pop()):
             pending += nested(seg)
-            if seg[0] == "cd" and len(seg) > 1:
-                found.append(seg[1])
-            found += [t.partition("=")[2] for t in seg if t.startswith("SUPABASE_WORKDIR=")]
+            words = [t for t in seg if not is_launcher(t)]
+            if words and words[0] in ("cd", "pushd"):
+                args = words[1:]
+                dirs = [a for a in args if not a.startswith("-")]
+                found.append(dirs[-1] if dirs else ("-" if "-" in args else "~"))
+            for i, token in enumerate(seg):
+                name, eq, value = token.partition("=")
+                if name in FOLDER_FLAGS:
+                    found += [value] if eq else seg[i + 1 : i + 2]
+                elif name == "SUPABASE_WORKDIR" or (name.startswith("SUPABASE_") and UNRESOLVED.search(value)):
+                    found.append(value)
     unresolved = any(UNRESOLVED.search(d) or d == "-" for d in found)
     base = cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     return [os.path.join(base, os.path.expanduser(d)) for d in found], unresolved
@@ -288,6 +364,9 @@ def check_bash(command, targets, payload):
         if {"PROD", "PRODUCTION"} & set(match.group(1).upper().split("_")):
             block(f"the command uses {match.group(0)}, which looks like a production setting.")
 
+    if APPROVALS.search(command):
+        block("the command approves or rejects a deployment, or changes a deployment rule. Do that in the browser.")
+
     if re.search(r"\b(?:sk|rk)_live_", command):
         block("the command contains a live Stripe key. Curio uses the Stripe sandbox only.")
     for args in invocations(command, "stripe"):
@@ -298,25 +377,25 @@ def check_bash(command, targets, payload):
         words = [a.lower() for a in args if not a.startswith("-")]
         if any(a.split("=")[0] in ("--prod", "--production") for a in args) \
                 or (words and words[0] in ("promote", "rollback", "alias", "remove", "rm")) \
-                or words[:2] in (["project", "rm"], ["project", "remove"]) \
+                or (words[:1] in (["project"], ["projects"]) and words[1:2] in (["rm"], ["remove"])) \
                 or "production" in words or any(a.lower().endswith("=production") for a in args):
             block("the Vercel command targets production, or removes deployments or projects.")
 
     for args in invocations(command, "gh"):
         if args and args[0] in GH_SENSITIVE and re.search(r"prod", " ".join(args), re.I):
             block("the GitHub command is aimed at production.")
-        if args and args[0] == "api" and GH_APPROVALS.search(" ".join(args)):
-            block("the GitHub command approves a deployment or changes an environment. Do that in the browser.")
+        if args and args[0] == "api" and GH_ENVIRONMENTS.search(" ".join(args)):
+            block("the GitHub command changes an environment. Do that in the browser.")
 
     for word, args in calls(command, "supabase"):
         version = os.path.basename(word).partition("@")[2]
         if version and not re.match(r"[~^]?3(?:\.|$)", version):
             block(f"`{os.path.basename(word)}` isn't the pinned Supabase CLI 3, whose commands this hook knows. "
                   "Use `pnpm supabase …`.")
-        flags, words, explicit, workdir = parse_supabase(args)
-        if "--reveal" in flags or words[:2] == ["gen", "keys"]:
+        p = parse_supabase(args)
+        if "--reveal" in p.flags or p.words[:2] == ["gen", "keys"]:
             block("the command would print secret keys into the session. Read them in the dashboard instead.")
-        remote, explicit = supabase_target(flags, words, explicit)
+        remote, target = supabase_target(p)
         if not remote:
             continue
         if not targets:
@@ -325,11 +404,18 @@ def check_bash(command, targets, payload):
                 "yet, so remote Supabase commands stay blocked (fail closed). Add the "
                 "production ref first (task T04)."
             )
-        if explicit is not None:
-            if UNRESOLVED.search(explicit):
-                block("the Supabase target comes from a variable or a command, so the hook can't tell it isn't production.")
-            continue  # a literal target was checked against the production list above
-        dirs, unresolved = workdirs(command, workdir, payload.get("cwd"))
+        if target is not None:
+            if UNKNOWN.search(target):
+                block("the Supabase target comes from a variable, a command or a pattern, so the hook can't "
+                      "tell it isn't production.")
+            if any(t in target.lower() for t in targets):
+                block("the command targets the production project.")
+            if REF_SHAPE.fullmatch(target) or URL_SHAPE.match(target):
+                continue  # a literal project or database that isn't production
+            if p.target_flag != "--remote":
+                block("the Supabase target isn't a project ref or a database URL, so the hook can't check it.")
+            # Anything else after `--remote=` is a branch, which belongs to the linked project.
+        dirs, unresolved = workdirs(command, p.workdir, payload.get("cwd"))
         if unresolved:
             block("the command changes folder through a variable, so the hook can't tell which project is linked.")
         if linked_refs(payload, dirs) & set(targets):
@@ -349,14 +435,17 @@ def check_mcp(tool, args, targets):
 
 
 def main():
-    payload = json.load(sys.stdin)
-    tool = payload.get("tool_name", "")
-    args = payload.get("tool_input") or {}
-    targets = load_targets()
-    if tool == "Bash":
-        check_bash(args.get("command") or "", targets, payload)
-    elif tool.startswith("mcp__"):
-        check_mcp(tool, args, targets)
+    try:
+        payload = json.load(sys.stdin)
+        tool = payload.get("tool_name", "")
+        args = payload.get("tool_input") or {}
+        targets = load_targets()
+        if tool == "Bash":
+            check_bash(args.get("command") or "", targets, payload)
+        elif tool.startswith("mcp__"):
+            check_mcp(tool, args, targets)
+    except Exception as error:  # a crash must never let a command through
+        block(f"the production hook couldn't check this call ({type(error).__name__}).")
     sys.exit(0)
 
 
