@@ -130,6 +130,22 @@ for cmd, expect in [
     ("vercel project rm curio", 2),
     ("gh api -X POST repos/o/r/actions/runs/123/pending_deployments -F 'environment_ids[]=1' -f state=approved", 2),
     ("gh api -X PUT repos/o/r/environments/staging -f wait_timer=0", 2), ("gh api repos/o/r/pulls", 0),
+    # From the second security review: unparseable lines, comment continuations and other routes to approval
+    ("cd apps/web && vercel deploy --prod # it's ready", 2),
+    ("cd . && pnpm supabase functions deploy --project-ref abcdefghijklmnopqrst # it's staging", 2),
+    ("bash -c 'echo start\npnpm supabase db reset --yes --remote'", 2), ("echo hi # \\\nsupabase db push --linked", 2),
+    ("gh api graphql -f query='mutation{approveDeployments(input:{}){clientMutationId}}'", 2),
+    ("curl -X POST https://api.github.com/repos/o/r/actions/runs/1/pending_deployments -d '{}'", 2),
+    ("pnpm supabase functions deploy --help=false", 2), ("supabase secrets set X=1 -h=false", 2),
+    ("supabase db push --local=false", 2), ("supabase db push --help", 0), ("vercel projects rm curio", 2),
+    ("supabase db push --db-url 'postgresql://u@[1.2.3.4]:5432/postgres'", 2),
+    ("bash <<'EOF'\nsupabase db push --remote\nEOF", 2), ("echo \"$(pnpm supabase db push --remote)\"", 2),
+    ("echo \"`supabase db push --remote`\"", 2), ("fish -c 'supabase db push --remote'", 2),
+    # Everyday commands that must stay allowed
+    ("find supabase -name '*.sql'", 0), ("fd . supabase -e sql", 0), ("pnpm ls supabase --depth 0", 0),
+    ("pnpm add supabase -D --filter web", 0), ("pnpm add -D supabase@latest -E", 0),
+    ("git commit -F - <<'EOF'\nRuns supabase db push on staging\nEOF", 0), ("pnpm supabase stop", 0),
+    ("pnpm supabase migration new add_profiles", 0), ("pnpm supabase functions serve", 0), ("pnpm install", 0),
 ]:
     check(f"Bash: {cmd[:60]!r}", PROD, bash(cmd), expect)
 check("MCP supabase tool, nothing listed", PROD, {"tool_name": "mcp__supabase__execute_sql", "tool_input": {"project_id": "x", "query": "select 1"}}, 2)
@@ -176,10 +192,22 @@ check("linked staging: target in a variable", PROD2, bash("supabase db push --re
 check("linked staging: staging ref given explicitly", PROD2, bash(f"supabase db push --remote={STAGEREF}", proj), 0, env)
 check("linked staging: bash -lc", PROD2, bash("bash -lc 'supabase db push --remote'", proj), 0, env)
 check("linked staging: printing the keys", PROD2, bash("pnpm supabase projects api-keys --remote --reveal", proj), 2, env)
+check("linked staging: pushd to a production checkout", PROD2, bash(f"pushd {other} && supabase db push --remote", proj), 2, env)
+check("linked staging: cd -P", PROD2, bash(f"cd -P {other} && supabase db push --remote", proj), 2, env)
+check("linked staging: if cd", PROD2, bash(f"if cd {other}; then supabase db push --remote; fi", proj), 2, env)
+check("linked staging: a { cd; } group", PROD2, bash(f"{{ cd {other}; supabase db push --remote; }}", proj), 2, env)
+check("linked staging: pnpm -C", PROD2, bash(f"pnpm -C {other} exec supabase db push --remote", proj), 2, env)
+check("linked staging: npm --prefix", PROD2, bash(f"npm --prefix {other} exec supabase db push --remote", proj), 2, env)
+check("linked staging: SUPABASE_* from a variable", PROD2, bash("SUPABASE_PROJECT_ID=$X supabase db push --remote", proj), 2, env)
+check("linked staging: production ref split by quotes", PROD2, bash(f"supabase functions deploy --project-ref {PRODREF[:7]}''{PRODREF[7:]}", proj), 2, env)
+check("linked staging: target from xargs", PROD2, bash("echo x | xargs -I{} supabase db push --project-ref {}", proj), 2, env)
+check("linked staging: a branch of the linked project", PROD2, bash("supabase db push --remote=feature-x", proj), 0, env)
 linked(PRODREF)
 check("linked production: line continuation", PROD2, bash("pnpm supabase db reset \\\n  --remote --yes", proj), 2, env)
 check("linked production: bash -lc", PROD2, bash("bash -lc 'supabase db push --remote'", proj), 2, env)
 check("linked production: a deploy loop", PROD2, bash("for f in verification dispatcher; do pnpm supabase functions deploy \"$f\"; done", proj), 2, env)
+check("linked production: a branch of it", PROD2, bash("supabase db push --remote=feature-x", proj), 2, env)
+check("linked production: --remote=false", PROD2, bash("supabase db push --remote=false", proj), 2, env)
 check("linked production: supabase db push", PROD2, bash("supabase db push", proj), 2, env)
 check("linked production: pnpm -w supabase db push", PROD2, bash("pnpm -w supabase db push", proj), 2, env)
 check("linked production: supabase test db --remote", PROD2, bash("supabase test db --remote", proj), 2, env)

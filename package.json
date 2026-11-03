@@ -1,0 +1,21 @@
+{
+  "name": "curio",
+  "private": true,
+  "packageManager": "pnpm@11.0.8+sha512.4c4097e1dd2d42372c4e7fa5a791ff28fc75a484c7ac192e64b1df0fdef17594ba982f9b4fed9adfb3c757846f565b799b2763fb3733d1de1bcb82cf46684912",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "lint": "pnpm -r --if-present lint && cd supabase/functions && deno lint --permit-no-files",
+    "typecheck": "pnpm -r --if-present typecheck && cd supabase/functions && deno check",
+    "format": "prettier --write . && cd supabase/functions && deno fmt",
+    "format:check": "prettier --check . && cd supabase/functions && deno fmt --check",
+    "test": "pnpm -r --if-present test",
+    "test:functions": "cd supabase/functions && deno test --permit-no-files"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10",
+    "supabase": "3.0.0"
+  }
+}
