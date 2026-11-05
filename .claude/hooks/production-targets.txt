@@ -10,3 +10,8 @@
 #
 # Refs and domains aren't secrets: they appear in public URLs. Use exact
 # identifiers only; a short word here would block everything that mentions it.
+
+# The production Supabase project, curio-production
+vyeeqwswkjwhxfcdsxvo
+# The production site on Vercel
+curio-fyp.vercel.app
