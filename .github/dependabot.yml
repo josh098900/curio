@@ -1,0 +1,19 @@
+# Weekly updates (NFR-SEC-08). The one-day cooldown matches pnpm's minimumReleaseAge.
+# Swift packages join once the iOS app has some (T71).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 1
