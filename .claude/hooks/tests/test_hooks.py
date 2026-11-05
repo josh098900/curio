@@ -1,6 +1,7 @@
 """Pipe-tests for the three guard hooks. Run from anywhere: python3 -I .claude/hooks/tests/test_hooks.py"""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -71,7 +72,15 @@ for cmd, expect in [
     check(f"Bash: {cmd[:60]!r}", ENV, bash(cmd), expect)
 
 # ---------------------------------------------------------------- production
-PROD = os.path.join(HOOKS, "block_production.py")
+# Each section runs a copy of the hook beside a targets file of its own, so the real
+# list, which names production from T04 on, doesn't change what they test.
+PROD_HOOK = os.path.join(HOOKS, "block_production.py")
+empty = os.path.join(SCRATCH_REAL, "hooktest_empty", "hooks")
+os.makedirs(empty)
+shutil.copy(PROD_HOOK, empty)
+with open(os.path.join(empty, "production-targets.txt"), "w") as f:
+    f.write("# nothing listed yet\n")
+PROD = os.path.join(empty, "block_production.py")
 print("block_production.py, nothing listed yet (fail closed)")
 for cmd, expect in [
     ("supabase start", 0), ("supabase db reset", 0), ("supabase test db", 0), ("supabase migration new init", 0),
@@ -155,7 +164,7 @@ print("block_production.py, with a production ref listed")
 PRODREF, STAGEREF = "prodrefaaaaaaaaaaaaa", "stagerefbbbbbbbbbbbb"
 sandbox = os.path.join(SCRATCH_REAL, "hooktest_prod")
 os.makedirs(os.path.join(sandbox, "hooks"))
-shutil.copy(PROD, os.path.join(sandbox, "hooks", "block_production.py"))
+shutil.copy(PROD_HOOK, os.path.join(sandbox, "hooks", "block_production.py"))
 with open(os.path.join(sandbox, "hooks", "production-targets.txt"), "w") as f:
     f.write(f"# test\n{PRODREF}\ncurio.example\n")
 PROD2 = os.path.join(sandbox, "hooks", "block_production.py")
@@ -215,6 +224,16 @@ check("linked production: from a subdirectory", PROD2, bash("supabase migration 
 check("linked production: local commands still fine", PROD2, bash("supabase db reset && supabase test db", proj), 0, env)
 check("MCP call naming production", PROD2, {"tool_name": "mcp__supabase__execute_sql", "tool_input": {"project_id": PRODREF}}, 2, env)
 check("MCP call naming staging", PROD2, {"tool_name": "mcp__supabase__execute_sql", "tool_input": {"project_id": STAGEREF}}, 0, env)
+
+print("production-targets.txt, the real list")
+# A line the hook can't match, such as one with a comment after the ref, would let production through.
+with open(os.path.join(HOOKS, "production-targets.txt"), encoding="utf-8") as f:
+    listed = [line.strip().lower() for line in f if line.strip() and not line.strip().startswith("#")]
+for target in listed:
+    shaped = re.fullmatch(r"[a-z]{20}|[a-z0-9-]+(?:\.[a-z0-9-]+)+", target) is not None
+    failures += 0 if shaped else 1
+    print(f"  {'ok  ' if shaped else 'FAIL'} [shape] {target!r} is a project ref or a domain")
+    check(f"the real hook blocks a command naming {target}", PROD_HOOK, bash(f"echo {target}"), 2)
 
 # ---------------------------------------------------------------- migrations
 MIG = os.path.join(HOOKS, "protect_applied_migrations.py")
