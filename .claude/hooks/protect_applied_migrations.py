@@ -53,8 +53,8 @@ def applied_path(path):
     if not root:
         return None
     rel = os.path.relpath(real, root).replace(os.sep, "/")
-    if not rel.startswith(MIGRATIONS + "/"):
-        return None
+    if not rel.startswith(MIGRATIONS + "/") or not rel.endswith(".sql"):
+        return None  # only .sql files are migrations; a .gitkeep isn't
     if any(git(root, "cat-file", "-e", f"{ref}:{rel}").returncode == 0 for ref in REFS):
         return rel
     return None
@@ -65,7 +65,7 @@ def applied_migrations(root):
     for ref in REFS:
         result = git(root, "ls-tree", "-r", "--name-only", ref, "--", MIGRATIONS)
         if result.returncode == 0:
-            names.update(line for line in result.stdout.splitlines() if line)
+            names.update(line for line in result.stdout.splitlines() if line.endswith(".sql"))
     return names
 
 
@@ -118,15 +118,25 @@ def check_bash(command, payload):
     if not applied:
         return
     basenames = {os.path.basename(p) for p in applied}
-    in_migrations = f"/{MIGRATIONS}" in os.path.realpath(cwd)
+    # The folder the command is in at each point, followed through `cd`; unknown after `cd "$X"`.
+    base, unknown_base = os.path.realpath(cwd), False
+
+    def relative(path):
+        return os.path.relpath(path, root).replace(os.sep, "/")
+
+    def in_migrations():
+        rel = relative(base)
+        return rel == MIGRATIONS or rel.startswith(MIGRATIONS + "/")
 
     def refers(token, destructive):
         norm = token.rstrip("/")
-        if os.path.basename(norm) in basenames:
-            return True
+        if relative(os.path.realpath(os.path.join(base, os.path.expanduser(norm)))) in applied:
+            return True  # the path itself, resolved from where the command is
+        if (in_migrations() or unknown_base) and os.path.basename(norm) in basenames:
+            return True  # a bare name inside the folder, or after a `cd` the hook can't follow
         if re.search(r"(^|/)migrations$", norm) or ("migrations/" in norm and re.search(r"[*?\[]", norm)):
             return True
-        if in_migrations and (norm in (".", "") or re.search(r"[*?\[]", norm)):
+        if in_migrations() and (norm in (".", "") or re.search(r"[*?\[]", norm)):
             return True
         return destructive and re.fullmatch(r"(\./)?supabase|.*/supabase", norm) is not None
 
@@ -138,7 +148,11 @@ def check_bash(command, payload):
             continue
         name, args = os.path.basename(seg[i]), seg[i + 1 :]
         if name == "cd":
-            in_migrations = bool(args) and "migrations" in args[0]
+            target = args[0] if args else "~"
+            if re.search(r"[$`]", target) or target == "-":
+                unknown_base = True
+            else:
+                base = os.path.realpath(os.path.join(base, os.path.expanduser(target)))
             continue
         for j, arg in enumerate(args):
             target = None

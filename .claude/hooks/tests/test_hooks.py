@@ -226,6 +226,10 @@ subprocess.run(["git", "init", "-q", "-b", "main", repo], check=True)
 applied = os.path.join(mig_dir, "20261109000000_init.sql")
 with open(applied, "w") as f:
     f.write("create schema private;\n")
+# Placeholders in main, as in the real repo: neither is a migration.
+os.makedirs(os.path.join(repo, ".github", "workflows"))
+for keep in (os.path.join(mig_dir, ".gitkeep"), os.path.join(repo, ".github", "workflows", ".gitkeep")):
+    open(keep, "w").close()
 subprocess.run(["git", "-C", repo, "add", "."], check=True)
 subprocess.run(["git", "-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"], check=True)
 fresh = os.path.join(mig_dir, "20261116000000_rate_limits.sql")
@@ -242,6 +246,7 @@ check("Write applied migration", MIG, mtool("Write", file_path=applied, content=
 check("Edit uncommitted migration", MIG, mtool("Edit", file_path=fresh, old_string="a", new_string="b"), 0)
 check("Write a new migration", MIG, mtool("Write", file_path=os.path.join(mig_dir, "20261117000000_x.sql"), content="x"), 0)
 check("Edit a seed file", MIG, mtool("Edit", file_path=os.path.join(repo, "supabase", "seed.sql"), old_string="a", new_string="b"), 0)
+check("Edit the .gitkeep in migrations, which isn't a migration", MIG, mtool("Edit", file_path=os.path.join(mig_dir, ".gitkeep"), old_string="a", new_string="b"), 0)
 if SCRATCH != SCRATCH_REAL:
     check("Edit through a symlinked path", MIG, mtool("Edit", file_path=applied.replace(SCRATCH_REAL, SCRATCH), old_string="a", new_string="b"), 2)
 for cmd, expect in [
@@ -254,6 +259,11 @@ for cmd, expect in [
     ("cd supabase/migrations && rm 20261109000000_init.sql", 2), ("cd supabase/migrations && rm *.sql", 2),
     ("git rm supabase/migrations/20261109000000_init.sql", 2), ("find supabase/migrations -name '*.sql' -delete", 2),
     ("ls supabase/migrations/*.sql | xargs rm", 2), ("cat x.sql | tee supabase/migrations/20261109000000_init.sql", 2),
+    # Only .sql files are migrations, matched by their full path
+    ("rm .github/workflows/.gitkeep", 0), ("rm supabase/migrations/.gitkeep", 0),
+    ("cd supabase/migrations && rm .gitkeep", 0), ("rm backups/20261109000000_init.sql", 0),
+    ("cd supabase && rm migrations/20261109000000_init.sql", 2), ("cd \"$DIR\" && rm 20261109000000_init.sql", 2),
+    ("rm ./supabase/migrations/../migrations/20261109000000_init.sql", 2),
 ]:
     check(f"Bash: {cmd[:60]!r}", MIG, bash(cmd, repo), expect)
 print("protect_applied_migrations.py, on an unmerged feature branch")
