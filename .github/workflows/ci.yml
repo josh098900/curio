@@ -53,14 +53,23 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: pnpm install --frozen-lockfile
-      - name: pgTAP on a local Supabase stack
+      # Only what the tests and the type generation need. Kong stays, because the CLI checks
+      # the other services' health through it.
+      - name: Start a local Supabase stack
+        id: stack
+        run: pnpm supabase start --exclude studio,imgproxy,mailpit,postgres-meta,edge-runtime,logflare,vector,supavisor
+      - name: pgTAP, including the schema guards
+        run: pnpm supabase test db
+      # Contract sync (spec §14.2, D22): the committed types must match the migrations. It runs
+      # even when pgTAP fails, so both results show. Swift types join with the iOS app (T71).
+      - name: Generated types match the schema
+        if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
         run: |
-          if [ -z "$(find supabase/tests -name '*.sql' -print -quit)" ]; then
-            echo "::notice::No pgTAP tests yet. T03 adds the first ones."
-            exit 0
-          fi
-          pnpm supabase start --exclude studio,imgproxy,kong,mailpit,postgres-meta,edge-runtime,logflare,vector,supavisor
-          pnpm supabase test db
+          pnpm supabase gen types --lang typescript --schema public > packages/contracts/src/database.types.ts
+          git diff --exit-code -- packages/contracts/src/database.types.ts || {
+            echo "::error::The generated types are out of date. Run: pnpm supabase gen types --lang typescript --schema public > packages/contracts/src/database.types.ts"
+            exit 1
+          }
 
   build:
     name: Build the web app

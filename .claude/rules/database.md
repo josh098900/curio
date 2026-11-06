@@ -23,17 +23,19 @@ The data dictionary's conventions, which are applied everywhere:
 - Allowed values are `text` columns with a CHECK constraint. The only enum type is `activity_category`.
 - Columns are `not null` unless the dictionary says optional.
 - Lengths count characters after trimming, not bytes. Text is stored in NFC form.
-- Foreign keys cascade or set null exactly as the dictionary says. Every foreign key has an index that starts with its column, unless a primary or unique key already does (DB-SCH-07).
+- Foreign keys cascade or set null exactly as the dictionary says. Every foreign key has an index that starts with its column, unless a primary or unique key already does; a partial index doesn't count (DB-SCH-07).
 - `approx_location` is snapped to a fixed grid of about 1 km, deterministically, never randomly offset. The exact point exists only in `activity_locations`.
 - Activity status comes from the `activity_status` view. Only cancellation is stored.
+- Views in `public` are `security_invoker`, so RLS applies through them. No materialized views or foreign tables in `public` (DB-SCH-01).
 - `outbox_events`, `webhook_events`, `rate_limit_buckets` and every helper function live in `private`, which the Data API never exposes.
+- Extensions go in the `extensions` schema (`create extension … with schema extensions`), never `public` or `private` (DB-SCH-09).
 
 ## Access rules (RLS)
 
 - Every table in `public` has RLS on (DB-SCH-01), with the rules in spec §9's access table.
 - Policies name their role (`to authenticated`), wrap `(select auth.uid())`, and index every column they filter on.
 - Where §9 says a table is written "through" a function, clients get no insert, update or delete policy on it. Columns the dictionary marks server only are written only by functions.
-- Policy helpers (`private.is_participant`, `private.is_admin`, `private.is_blocked`) are read-only, `security definer` and `set search_path = ''`, with every name schema-qualified.
+- Policy helpers (`private.is_participant`, `private.is_admin`, `private.is_blocked`) are read-only, `security definer` and `set search_path = ''`, with every name schema-qualified. They read the caller from `(select auth.uid())`, never from a parameter, so a policy can't be used to ask about other people.
 - Blocks hide people both ways and never reveal who blocked whom. Suspended and deleted accounts are hidden from everyone but admins.
 
 ## RPC functions
@@ -42,8 +44,8 @@ The data dictionary's conventions, which are applied everywhere:
 - Raise errors only through `private.raise_error(code, details)`, never with `raise exception` directly. The code is the message, the HTTP status comes from §14.4 through PostgREST's `PT` codes, and `INVALID_INPUT` carries the field details. DB-SCH-08 fails the build on any other code.
 - Each function runs in one transaction. A refusal raises, so nothing partial is written and no rate-limit token is used (DB-RATE-06). Calling again with the same arguments never repeats an effect.
 - Rate-limited actions call `private.consume_rate_limit(user_id, action)` where the contract puts it.
-- Public RPC functions are granted to `authenticated` only, private ones to no client role. A new function goes on the DB-SCH-02 allow-list in the same change.
-- Functions run as the caller by default. Use `security definer` only where a function must write what clients can't; then set `search_path = ''`, check the caller inside, and qualify every name (DB-SCH-03).
+- Client roles can't use the `private` schema (DB-SCH-04), and a PL/pgSQL function running as the caller can't call into it. So functions and triggers that write or raise errors are `security definer`: set `search_path = ''`, check the caller inside, filter what you return as RLS would, and qualify every name (DB-SCH-03). Read-only functions that should respect RLS run as the caller and are SQL with `begin atomic` bodies, which resolve names when they're created.
+- Public RPC functions are granted to `authenticated` only. In `private`, `authenticated` gets `execute` only on what policies, views and those read functions call: the three policy helpers, `private.now()` and `private.raise_error()`. It still can't call them, because it can't use the schema. A new function goes on the DB-SCH-02 allow-list in `supabase/tests/schema_guards.test.sql` in the same change.
 - Business rules read the time from `private.now()`, never `now()` directly.
 - Side effects go into `private.outbox_events` in the same transaction, with ids only in the payload and only the event types in §11. Consumers are idempotent: emails use the outbox event id as the idempotency key, notifications a unique `dedupe_key`.
 - Admin functions check `private.is_admin()` and write their `audit_log` row in the same transaction (DB-MOD-07). Every action that affects someone needs a reason, which that person sees; only dismissing a report and approving a hostel may go without (DB-MOD-09). Admins' own notes go in `details`, which only admins read. `resolve_report` also writes a `report_resolved` event for the reporter, with the report's id only (DB-MOD-08). The dispatcher looks up the outcome and stores it in the reporter's notification, because reporters can't read reports.
@@ -71,6 +73,6 @@ The data dictionary's conventions, which are applied everywhere:
 ## Commands
 
 - Run the CLI through pnpm, from the repo root (`pnpm supabase …`). Since v3 it targets the local stack unless given `--remote`, which means the linked project.
-- Local, any time: `start`, `stop`, `db reset`, `test db`, `migration new <name>`, `gen types --lang typescript` (and `--lang swift`), `functions serve`.
+- Local, any time: `start`, `stop`, `db reset`, `test db`, `migration new <name>`, `gen types --lang typescript --schema public > packages/contracts/src/database.types.ts` (Swift types join with the iOS app, T71), `functions serve`.
 - Remote, staging only, and only when a task calls for it: `link`, `db push --remote`, `functions deploy`, `secrets set`. Production is never a target (a hook enforces this).
 - Never wrap a remote Supabase command in a `package.json` script. The production hook sees only the command line, so a script would hide it.

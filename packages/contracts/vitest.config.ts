@@ -7,7 +7,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.d.ts", "src/**/*.test.ts"],
+      // database.types.ts is generated from the schema and checked by CI's contract sync.
+      exclude: ["src/**/*.d.ts", "src/**/*.test.ts", "src/database.types.ts"],
       thresholds: { lines: 70 },
     },
   },
