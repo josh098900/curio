@@ -44,17 +44,22 @@ setup("get past Vercel's deployment protection", async () => {
 // Signing in without an email or a password (spec §14.2): the Auth admin API makes a one-time
 // code with staging's `ci_preview` key, and the code is exchanged for a session.
 setup("sign in as the staging test account", async () => {
-  // The first run creates the account. After that, Auth says it exists.
-  const created = await auth("/admin/users", {
-    secret: true,
-    body: { email: testAccount, email_confirm: true },
-  });
-  if (!created.ok) {
-    const { error_code } = await created.json();
-    expect(
-      error_code,
-      `Auth didn't create the test account (HTTP ${created.status}).`,
-    ).toBe("email_exists");
+  // The first run creates the account. After that, Auth says it exists. When two jobs create it
+  // at the same moment, one of them gets an error (HTTP 500), so a failure is tried once more,
+  // which then finds the account.
+  for (let attempt = 1; ; attempt++) {
+    const created = await auth("/admin/users", {
+      secret: true,
+      body: { email: testAccount, email_confirm: true },
+    });
+    if (created.ok) break;
+    const { error_code } = await created.json().catch(() => ({}));
+    if (error_code === "email_exists") break;
+    if (attempt === 2)
+      throw new Error(
+        `Auth didn't create the test account (HTTP ${created.status}).`,
+      );
+    await pause();
   }
 
   // Each new code replaces the last, so another job signing in at the same moment can spoil
@@ -75,10 +80,7 @@ setup("sign in as the staging test account", async () => {
       throw new Error(
         `Auth refused the one-time code (HTTP ${verified.status}).`,
       );
-    else
-      await new Promise((resolve) =>
-        setTimeout(resolve, 1000 + Math.random() * 2000),
-      );
+    else await pause();
   }
 
   // The session is real if Auth answers to it.
@@ -94,3 +96,10 @@ setup("sign in as the staging test account", async () => {
   );
   await writeFile(sessionFile, JSON.stringify(session), { mode: 0o600 });
 });
+
+// A wait of one to three seconds, so jobs that collided don't collide again.
+function pause() {
+  return new Promise((resolve) =>
+    setTimeout(resolve, 1000 + Math.random() * 2000),
+  );
+}
