@@ -9,8 +9,10 @@ updates:
     cooldown:
       default-days: 1
     groups:
+      # The Supabase CLI runs beside the database URLs, so its updates come on their own.
       minor-and-patch:
         update-types: [minor, patch]
+        exclude-patterns: [supabase]
   - package-ecosystem: github-actions
     directory: /
     schedule:

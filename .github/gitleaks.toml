@@ -1,0 +1,33 @@
+# The secret scan's rules (spec §14.2, NFR-SEC-02): gitleaks' defaults, plus Curio's own key
+# formats, which the defaults catch only when a variable's name gives them away. CI makes up a
+# secret of each kind and checks that a rule here still catches it before it scans.
+
+[extend]
+useDefault = true
+
+# A database URL bypasses RLS completely, and its password sits inside it (spec §13.3). Short
+# passwords are test data, and `postgres` is the local stack's well-known default.
+[[rules]]
+id = "postgres-url-password"
+description = "A Postgres connection string with a password"
+regex = '''postgres(?:ql)?://[^\s:@/]+:([^\s:@/]{8,})@'''
+secretGroup = 1
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''^postgres$''', '''^[$<\[{*]''']
+
+[[rules]]
+id = "supabase-secret-key"
+description = "A Supabase secret API key"
+regex = '''\bsb_secret_[A-Za-z0-9_-]{20,}'''
+
+[[rules]]
+id = "supabase-access-token"
+description = "A Supabase personal access token"
+regex = '''\bsbp_[a-f0-9]{40}\b'''
+
+[[rules]]
+id = "resend-api-key"
+description = "A Resend API key"
+regex = '''\bre_[A-Za-z0-9]{6,}_[A-Za-z0-9]{12,}\b'''
+entropy = 3.5
