@@ -13,6 +13,18 @@ updates:
       minor-and-patch:
         update-types: [minor, patch]
         exclude-patterns: [supabase]
+    # Major versions the toolchain can't take yet. Next's React, import and accessibility ESLint
+    # plugins support ESLint 9 at most, typescript-eslint supports TypeScript below 6.1, and
+    # Node's types follow the Node 24 runtime in .nvmrc. Lift each rule once that changes.
+    ignore:
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
