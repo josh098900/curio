@@ -57,6 +57,18 @@ describe("import boundaries", () => {
         "src/server/row.tsx",
       ),
     ).toContain("curio/require-server-only");
+    // TypeScript drops both of these, so neither keeps the file off the client.
+    for (const dropped of [
+      'import {} from "server-only";\n',
+      'import type {} from "server-only";\n',
+    ]) {
+      expect(
+        await rulesBroken(
+          `${dropped}export const db = 1;\n`,
+          "src/server/db.ts",
+        ),
+      ).toContain("curio/require-server-only");
+    }
     expect(
       await rulesBroken(
         'import "server-only";\nexport const db = 1;\n',
@@ -76,6 +88,12 @@ describe("import boundaries", () => {
     expect(
       await rulesBroken(
         'export const load = () => import("@supabase/supabase-js");\n',
+        "src/features/demo/lazy.ts",
+      ),
+    ).toContain("no-restricted-syntax");
+    expect(
+      await rulesBroken(
+        "export const load = () => import(`@supabase/supabase-js`);\n",
         "src/features/demo/lazy.ts",
       ),
     ).toContain("no-restricted-syntax");
