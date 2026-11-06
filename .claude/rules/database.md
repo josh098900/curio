@@ -11,7 +11,7 @@ Read these with spec §8.5, §9, §11 (interface contracts), §13, §14.4 and §
 
 - Every change is a new file made with `pnpm supabase migration new <name>`. A migration counts as applied once it's merged into `main`: from then on, never edit, rename or delete it (a hook enforces this). Fix forward with a new migration. One committed only on an unmerged branch can still change.
 - Never change a database by hand, through the dashboard or with remote CLI commands outside a task that says so. CI applies migrations to staging, and to production after approval.
-- Keep the first migration's revoke of Postgres's default `execute` privilege on functions.
+- Keep the first migration's revokes: Postgres's default `execute` privilege on functions, and Supabase's default grants of new functions, tables and sequences in `public`.
 - If a change needs a table, column, value or index the data dictionary doesn't list, stop and ask. The dictionary changes first.
 
 ## Schema
@@ -35,7 +35,7 @@ The data dictionary's conventions, which are applied everywhere:
 - Every table in `public` has RLS on (DB-SCH-01), with the rules in spec §9's access table.
 - Policies name their role (`to authenticated`), wrap `(select auth.uid())`, and index every column they filter on.
 - Where §9 says a table is written "through" a function, clients get no insert, update or delete policy on it. Columns the dictionary marks server only are written only by functions.
-- Policy helpers (`private.is_participant`, `private.is_admin`, `private.is_blocked`) are read-only, `security definer` and `set search_path = ''`, with every name schema-qualified. They read the caller from `(select auth.uid())`, never from a parameter, so a policy can't be used to ask about other people.
+- Policy helpers (`private.is_participant`, `private.is_admin`, `private.is_blocked`) are read-only, `security definer` and `set search_path = ''`, with every name schema-qualified. They read the caller from `(select auth.uid())`, never from a parameter, so a policy can't be used to ask about other people. Pass them only columns of rows the caller can already read, never a function's own parameter: a public read function calling `private.is_blocked(<parameter>)` would tell anyone who has blocked them.
 - Blocks hide people both ways and never reveal who blocked whom. Suspended and deleted accounts are hidden from everyone but admins.
 
 ## RPC functions
@@ -44,7 +44,7 @@ The data dictionary's conventions, which are applied everywhere:
 - Raise errors only through `private.raise_error(code, details)`, never with `raise exception` directly. The code is the message, the HTTP status comes from §14.4 through PostgREST's `PT` codes, and `INVALID_INPUT` carries the field details. DB-SCH-08 fails the build on any other code.
 - Each function runs in one transaction. A refusal raises, so nothing partial is written and no rate-limit token is used (DB-RATE-06). Calling again with the same arguments never repeats an effect.
 - Rate-limited actions call `private.consume_rate_limit(user_id, action)` where the contract puts it.
-- Client roles can't use the `private` schema (DB-SCH-04), and a PL/pgSQL function running as the caller can't call into it. So functions and triggers that write or raise errors are `security definer`: set `search_path = ''`, check the caller inside, filter what you return as RLS would, and qualify every name (DB-SCH-03). Read-only functions that should respect RLS run as the caller and are SQL with `begin atomic` bodies, which resolve names when they're created.
+- Client roles can't use the `private` schema (DB-SCH-04), and a PL/pgSQL function running as the caller can't call into it. So functions and triggers that write, or that need PL/pgSQL, are `security definer`: set `search_path = ''`, check the caller inside, filter what you return as RLS would, and qualify every name (DB-SCH-03). Read-only functions that should respect RLS run as the caller and are SQL with `begin atomic` bodies, which resolve names when they're created; they raise errors through `private.raise_error`.
 - Public RPC functions are granted to `authenticated` only. In `private`, `authenticated` gets `execute` only on what policies, views and those read functions call: the three policy helpers, `private.now()` and `private.raise_error()`. It still can't call them, because it can't use the schema. A new function goes on the DB-SCH-02 allow-list in `supabase/tests/schema_guards.test.sql` in the same change.
 - Business rules read the time from `private.now()`, never `now()` directly.
 - Side effects go into `private.outbox_events` in the same transaction, with ids only in the payload and only the event types in §11. Consumers are idempotent: emails use the outbox event id as the idempotency key, notifications a unique `dedupe_key`.

@@ -18,10 +18,14 @@ const requireServerOnly = {
     return {
       Program(program) {
         const first = program.body[0];
+        // Only the bare form counts: TypeScript drops `import {} from` and `import type`.
         const serverOnly =
           first?.type === "ImportDeclaration" &&
           first.source.value === "server-only" &&
-          first.specifiers.length === 0;
+          first.importKind !== "type" &&
+          /^import\s*["']server-only["']/.test(
+            context.sourceCode.getText(first),
+          );
         if (!serverOnly)
           context.report({ node: first ?? program, messageId: "missing" });
       },
@@ -117,6 +121,11 @@ const eslintConfig = defineConfig([
         {
           selector: "ImportExpression[source.value=/^@supabase\\//]",
           message: supabaseMessage,
+        },
+        {
+          selector: 'ImportExpression[source.type!="Literal"]',
+          message:
+            "Give import() a plain string, so lint can check what it loads.",
         },
       ],
     },
