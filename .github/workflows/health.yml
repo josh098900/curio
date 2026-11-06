@@ -1,8 +1,10 @@
 # The daily health check (spec §14.3, NFR-AVA-02). It asks each project's database whether it
 # answers, through the Data API's public.health(), which also keeps the free projects from
-# pausing. Staging has no fixed web address, so the check goes to each project directly;
-# production's web route joins it in T02's part B, once production is deployed. It uses public
-# values only: each project's URL and publishable key, kept as repository variables.
+# pausing, and checks that two settings haven't drifted: GraphQL stays unexposed, and anonymous
+# sign-up stays off. Staging has no fixed web address, so its checks go to the project directly;
+# production's web route is checked as well. It uses public values only, kept as repository
+# variables, and prints status codes rather than response bodies, because its logs are public.
+# GitHub stops scheduled workflows in a public repo after 60 days without activity.
 name: Health check
 
 on:
@@ -12,8 +14,12 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash # bash -eo pipefail
+
 jobs:
-  database:
+  project:
     name: ${{ matrix.project }} answers
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -27,21 +33,67 @@ jobs:
           - project: production
             url: PRODUCTION_SUPABASE_URL
             key: PRODUCTION_SUPABASE_PUBLISHABLE_KEY
+    env:
+      PROJECT: ${{ matrix.project }}
+      URL: ${{ vars[matrix.url] }}
+      KEY: ${{ vars[matrix.key] }}
     steps:
       - name: Ask the database
-        env:
-          PROJECT: ${{ matrix.project }}
-          URL: ${{ vars[matrix.url] }}
-          KEY: ${{ vars[matrix.key] }}
         run: |
           if [ -z "$URL" ] || [ -z "$KEY" ]; then
             echo "::error::Set the $PROJECT repository variables (Settings → Secrets and variables → Actions → Variables)."
             exit 1
           fi
-          answer=$(curl -fsS --max-time 20 -X POST "$URL/rest/v1/rpc/health" \
+          status=$(curl -sS --max-time 20 -o body -w '%{http_code}' -X POST "$URL/rest/v1/rpc/health" \
             -H "apikey: $KEY" -H "Content-Type: application/json" -d '{}')
-          if [ "$answer" != "true" ]; then
-            echo "::error::$PROJECT's database answered: $answer"
+          if [ "$status" != "200" ] || [ "$(cat body)" != "true" ]; then
+            echo "::error::$PROJECT's database didn't answer (HTTP $status)."
             exit 1
           fi
           echo "$PROJECT's database answered."
+      # Only public is exposed (spec §13.5, A02): PostgREST refuses graphql_public with PGRST106.
+      - name: GraphQL is refused
+        if: ${{ !cancelled() }}
+        run: |
+          status=$(curl -sS --max-time 20 -o body -w '%{http_code}' -X POST "$URL/graphql/v1" \
+            -H "apikey: $KEY" -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
+          if grep -q '"PGRST106"' body; then
+            echo "$PROJECT refuses GraphQL."
+          elif [ "$status" = "200" ]; then
+            echo "::error::$PROJECT answered a GraphQL request, so graphql_public is exposed again."
+            exit 1
+          else
+            echo "::error::$PROJECT's GraphQL check didn't get an answer (HTTP $status)."
+            exit 1
+          fi
+      # An anonymous user would get the authenticated role (T03's security review). This reads the
+      # setting rather than trying a sign-up, so it can't create a user if the setting changed.
+      - name: Anonymous sign-up is off
+        if: ${{ !cancelled() }}
+        run: |
+          status=$(curl -sS --max-time 20 -o body -w '%{http_code}' "$URL/auth/v1/settings" -H "apikey: $KEY")
+          if ! jq -e '.external.anonymous_users == false' body > /dev/null 2>&1; then
+            echo "::error::$PROJECT's anonymous sign-up isn't off (HTTP $status)."
+            exit 1
+          fi
+          echo "$PROJECT has anonymous sign-up off."
+
+  site:
+    name: production's web app answers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      SITE: ${{ vars.PRODUCTION_SITE_URL }}
+    steps:
+      - name: Ask /api/health
+        run: |
+          if [ -z "$SITE" ]; then
+            echo "::error::Set the PRODUCTION_SITE_URL repository variable."
+            exit 1
+          fi
+          status=$(curl -sS --max-time 20 -o body -w '%{http_code}' "$SITE/api/health")
+          if [ "$status" != "200" ] || [ "$(cat body)" != '{"status":"ok"}' ]; then
+            echo "::error::Production's web app didn't answer (HTTP $status)."
+            exit 1
+          fi
+          echo "Production's web app answered."
