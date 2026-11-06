@@ -1,0 +1,164 @@
+# Deployments (spec §8.6, §14.2). Once CI has passed on a push to main, this applies the
+# migrations to staging, then waits for your approval before migrating production and deploying
+# the web app there through Vercel's REST API. A workflow_run always runs main's own copy of this
+# file, so a pull request can't change it before it's merged. Edge Functions join with the first
+# one (T22).
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # bash -eo pipefail, so a failed request in a pipeline fails the step
+
+env:
+  SHA: ${{ github.event.workflow_run.head_sha }}
+  SUPABASE_TELEMETRY_DISABLED: "1"
+
+jobs:
+  staging:
+    name: Migrate staging
+    # Only a CI run for a push to this repo. GitHub reports a pushed tag's name as if it were a
+    # branch, so each job also checks that the commit is on main before running any of its code.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # One staging migration at a time; a newer run waits rather than cancelling one halfway.
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    # Holds staging's database URL.
+    environment: staging-deploy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
+            echo "::error::$SHA isn't on main, so it isn't deployed."
+            exit 1
+          fi
+          echo "Deploying $SHA, which is on main." >> "$GITHUB_STEP_SUMMARY"
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # The root package only: the Supabase CLI and Prettier, not the whole workspace.
+      - run: pnpm install --frozen-lockfile --filter curio
+      - name: Apply the migrations
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          SUPABASE_YES: "1"
+        run: |
+          password=${DATABASE_URL#*://*:}
+          echo "::add-mask::${password%%@*}"
+          pnpm supabase db push --remote="$DATABASE_URL" --skip-vault
+
+  production:
+    name: Migrate and deploy production
+    needs: staging
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # One production deployment at a time. A newer run replaces one still waiting for approval,
+    # and never cancels one that's running.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    # Runs only after your approval; holds production's database URL and the Vercel token
+    # (spec §13.3).
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_SITE_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
+            echo "::error::$SHA isn't on main, so it isn't deployed."
+            exit 1
+          fi
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile --filter curio
+      - name: Apply the migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          SUPABASE_YES: "1"
+        run: |
+          password=${DATABASE_URL#*://*:}
+          echo "::add-mask::${password%%@*}"
+          pnpm supabase db push --remote="$DATABASE_URL" --skip-vault
+      # Vercel builds the exact commit CI tested from GitHub, as it does previews, so no CLI and
+      # its dependencies run here; the token is the only credential. Only Vercel's error code is
+      # ever printed, never a full response.
+      - name: Deploy the web app
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          REPO_ID: ${{ github.repository_id }}
+        run: |
+          api="https://api.vercel.com/v13/deployments"
+          query="teamId=$VERCEL_TEAM_ID"
+          body=$(jq -n --arg project "$VERCEL_PROJECT_ID" --argjson repoId "$REPO_ID" --arg sha "$SHA" \
+            '{name: $project, project: $project, target: "production",
+              gitSource: {type: "github", repoId: $repoId, ref: "main", sha: $sha}}')
+          if ! created=$(curl -sS --fail-with-body --max-time 30 \
+              -X POST "$api?$query&forceNew=1&skipAutoDetectionConfirmation=1" \
+              -H "Authorization: Bearer $VERCEL_TOKEN" -H "Content-Type: application/json" -d "$body"); then
+            echo "::error::Vercel refused the deployment ($(jq -r '.error.code // "no code"' <<< "$created" 2> /dev/null))."
+            exit 1
+          fi
+          id=$(jq -r '.id' <<< "$created")
+          if [[ "$id" != dpl_* ]]; then
+            echo "::error::Vercel didn't return a deployment id."
+            exit 1
+          fi
+          echo "Vercel is building deployment $id from $SHA."
+          for _ in $(seq 60); do
+            deployment=$(curl -sS --fail-with-body --max-time 30 "$api/$id?$query" \
+              -H "Authorization: Bearer $VERCEL_TOKEN")
+            state=$(jq -r '.readyState' <<< "$deployment")
+            case "$state" in
+              READY)
+                if jq -e --arg sha "$SHA" \
+                    '.target == "production" and ((.meta.githubCommitSha // .gitSource.sha) == $sha)' \
+                    <<< "$deployment" > /dev/null; then
+                  echo "Production is deployed from $SHA."
+                  exit 0
+                fi
+                echo "::error::Vercel's deployment isn't a production build of $SHA."
+                exit 1
+                ;;
+              ERROR | CANCELED)
+                echo "::error::The deployment ended as $state."
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo "::error::The deployment didn't finish within 10 minutes."
+          exit 1
