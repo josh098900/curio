@@ -1,7 +1,7 @@
 # The daily health check (spec §14.3, NFR-AVA-02). It asks each project's database whether it
 # answers, through the Data API's public.health(), which also keeps the free projects from
-# pausing, and checks that two settings haven't drifted: GraphQL stays unexposed, and anonymous
-# sign-up stays off. Staging has no fixed web address, so its checks go to the project directly;
+# pausing, and checks that two settings haven't drifted: the Data API exposes public only, and
+# anonymous sign-up stays off. Staging has no fixed web address, so its checks go to the project directly;
 # production's web route is checked as well. It uses public values only, kept as repository
 # variables, and prints status codes rather than response bodies, because its logs are public.
 # GitHub stops scheduled workflows in a public repo after 60 days without activity.
@@ -51,19 +51,21 @@ jobs:
             exit 1
           fi
           echo "$PROJECT's database answered."
-      # Only public is exposed (spec §13.5, A02): PostgREST refuses graphql_public with PGRST106.
-      - name: GraphQL is refused
+      # Only public is exposed (spec §13.5, A02). Asked for the private schema, PostgREST refuses
+      # with PGRST106 and lists the schemas it does expose, which must be public alone.
+      - name: Only public is exposed
         if: ${{ !cancelled() }}
         run: |
-          status=$(curl -sS --max-time 20 -o body -w '%{http_code}' -X POST "$URL/graphql/v1" \
-            -H "apikey: $KEY" -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
-          if grep -q '"PGRST106"' body; then
-            echo "$PROJECT refuses GraphQL."
-          elif [ "$status" = "200" ]; then
-            echo "::error::$PROJECT answered a GraphQL request, so graphql_public is exposed again."
+          status=$(curl -sS --max-time 20 -o body -w '%{http_code}' -X POST "$URL/rest/v1/rpc/health" \
+            -H "apikey: $KEY" -H "Content-Type: application/json" -H "Content-Profile: private" -d '{}')
+          exposed=$(jq -r 'select(.code == "PGRST106") | .hint' body 2> /dev/null || true)
+          if [ "$exposed" = "Only the following schemas are exposed: public" ]; then
+            echo "$PROJECT exposes public only."
+          elif [ -n "$exposed" ]; then
+            echo "::error::$PROJECT's Data API exposes more than public: ${exposed#Only the following schemas are exposed: }."
             exit 1
           else
-            echo "::error::$PROJECT's GraphQL check didn't get an answer (HTTP $status)."
+            echo "::error::$PROJECT's exposed-schema check didn't get the expected refusal (HTTP $status)."
             exit 1
           fi
       # An anonymous user would get the authenticated role (T03's security review). This reads the
