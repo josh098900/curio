@@ -9,7 +9,7 @@ Read these with spec §8.5, §11 (component breakdown and interface contracts), 
 
 ## Server side
 
-- Treat every server action and route handler as a public endpoint. Each one calls `getClaims()`, validates its input with the shared schema from `packages/contracts`, calls exactly one RPC function or Edge Function through the data access layer, maps the error code and returns a DTO. Nothing more.
+- Treat every server action and route handler as a public endpoint. Each one calls `getClaims()`, validates its input with the shared schema from `packages/contracts`, calls exactly one RPC function or Edge Function through the data access layer, maps the error code and returns a DTO. Nothing more. The one exception is `/api/health`, which signs nobody in and says only whether the database answers (spec §14.3).
 - Never call `getSession()` in server code (a lint rule checks this, WEB-ACT-03).
 - `src/proxy.ts` refreshes the session cookie and nothing else. It never allows or blocks a page (WEB-ACT-11).
 - Data access lives in `src/server/` behind `import 'server-only'`. Components don't call Supabase directly. The exceptions are Realtime subscriptions and the chat insert, which goes through the Data API with the user's own session; Stripe.js and Mapbox load in the browser. ESLint allows Supabase imports only in `src/server/` and `src/proxy.ts`; the browser client for those exceptions lives in one module, which gets its exemption in the task that adds it.
