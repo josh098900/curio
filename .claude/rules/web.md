@@ -12,14 +12,14 @@ Read these with spec §8.5, §11 (component breakdown and interface contracts), 
 - Treat every server action and route handler as a public endpoint. Each one calls `getClaims()`, validates its input with the shared schema from `packages/contracts`, calls exactly one RPC function or Edge Function through the data access layer, maps the error code and returns a DTO. Nothing more.
 - Never call `getSession()` in server code (a lint rule checks this, WEB-ACT-03).
 - `src/proxy.ts` refreshes the session cookie and nothing else. It never allows or blocks a page (WEB-ACT-11).
-- Data access lives in `src/server/` behind `import 'server-only'`. Components don't call Supabase directly. The exceptions are Realtime subscriptions and the chat insert, which goes through the Data API with the user's own session; Stripe.js and Mapbox load in the browser.
+- Data access lives in `src/server/` behind `import 'server-only'`. Components don't call Supabase directly. The exceptions are Realtime subscriptions and the chat insert, which goes through the Data API with the user's own session; Stripe.js and Mapbox load in the browser. ESLint allows Supabase imports only in `src/server/` and `src/proxy.ts`; the browser client for those exceptions lives in one module, which gets its exemption in the task that adds it.
 - The web app holds only public values: the Supabase URL and publishable key, the URL-restricted Mapbox token and the Sentry DSN. Anything that needs a secret is an Edge Function.
 - Redirect only to same-site relative paths. Refuse `//`, `/\` and absolute URLs in `next` parameters (WEB-ACT-09).
 - Security headers and the CSP come from one place. Adding an origin to the CSP is a decision, so ask. Never allow `'unsafe-eval'`. `worker-src blob:` and `img-src data: blob:` are there for Mapbox.
 
 ## Structure
 
-- Each feature has a folder in `src/features/<feature>/` holding its components, server actions and queries. Features don't import each other's internals (ESLint boundary rules); shared pieces live in the shared foundation.
+- Each feature has a folder in `src/features/<feature>/` holding its components, server actions and queries. Features don't import each other, except the safety feature's public `index.ts`, as on iOS (spec §12); shared pieces live in the shared foundation, `src/shared/`. Routes in `src/app/` may import features. ESLint's boundary rules enforce all of this.
 - Error codes, messages and validation schemas come from `packages/contracts`. Never redefine them. A failed RPC or Edge Function call arrives with the HTTP status in spec §14.4 and the code as its message, in the same JSON body either way; map the code, not the status. `BLOCKED` gives no reason and names nobody.
 - While the device is offline, show the offline notice and disable Join. Never queue a join for later (§14.4).
 - Database types come from `packages/contracts`, regenerated after every migration.
