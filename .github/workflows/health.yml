@@ -1,0 +1,47 @@
+# The daily health check (spec §14.3, NFR-AVA-02). It asks each project's database whether it
+# answers, through the Data API's public.health(), which also keeps the free projects from
+# pausing. Staging has no fixed web address, so the check goes to each project directly;
+# production's web route joins it in T02's part B, once production is deployed. It uses public
+# values only: each project's URL and publishable key, kept as repository variables.
+name: Health check
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  database:
+    name: ${{ matrix.project }} answers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: staging
+            url: STAGING_SUPABASE_URL
+            key: STAGING_SUPABASE_PUBLISHABLE_KEY
+          - project: production
+            url: PRODUCTION_SUPABASE_URL
+            key: PRODUCTION_SUPABASE_PUBLISHABLE_KEY
+    steps:
+      - name: Ask the database
+        env:
+          PROJECT: ${{ matrix.project }}
+          URL: ${{ vars[matrix.url] }}
+          KEY: ${{ vars[matrix.key] }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::Set the $PROJECT repository variables (Settings → Secrets and variables → Actions → Variables)."
+            exit 1
+          fi
+          answer=$(curl -fsS --max-time 20 -X POST "$URL/rest/v1/rpc/health" \
+            -H "apikey: $KEY" -H "Content-Type: application/json" -d '{}')
+          if [ "$answer" != "true" ]; then
+            echo "::error::$PROJECT's database answered: $answer"
+            exit 1
+          fi
+          echo "$PROJECT's database answered."

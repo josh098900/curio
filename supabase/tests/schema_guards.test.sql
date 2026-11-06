@@ -7,8 +7,8 @@ select plan(10);
 -- DB-SCH-02's allow-list. Add each function in the change that creates it: the public RPC
 -- functions, and the private functions that RLS policies, views and caller-rights SQL functions
 -- call. Those run as the caller, so authenticated needs the right to run them, but it still
--- can't call them, because it can't use the private schema (DB-SCH-04). Anon runs nothing
--- (spec §9).
+-- can't call them, because it can't use the private schema (DB-SCH-04). Anon runs only
+-- public.health(), which reads nothing and returns true for the health check (spec §9, §14.3).
 create temporary table allow_list (signature text primary key);
 
 select is_empty(
@@ -41,14 +41,15 @@ select is_empty(
   'DB-SCH-01 every view in public runs as the caller, and there''s no materialized view or foreign table'
 );
 
-select is_empty(
+select set_eq(
   $$
     select n.nspname || '.' || p.proname || '(' || oidvectortypes(p.proargtypes) || ')'
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname in ('public', 'private') and has_function_privilege('anon', p.oid, 'execute')
   $$,
-  'DB-SCH-02 anon can run no function in public or private'
+  $$ values ('public.health()') $$,
+  'DB-SCH-02 anon can run only public.health()'
 );
 
 select set_eq(
