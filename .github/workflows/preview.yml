@@ -1,0 +1,243 @@
+# The preview checks (spec §14.2). Vercel deploys each pull request's branch as a preview, built
+# against staging. Once it's ready, these run against it: smoke tests with axe, the Lighthouse
+# budgets and a ZAP baseline scan, signed in as the staging test account (apps/web/preview).
+# Their secrets are in the `staging` environment, which pull requests from forks never get, and
+# no workflow uses pull_request_target (spec §13.4). A public repo's logs and artifacts are
+# public, so nothing here prints a response or uploads a report.
+name: Preview checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push replaces a run still checking the one before.
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash # bash -eo pipefail
+
+env:
+  SHA: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  # A pull request supplies both this workflow and the code the checks run, so only the repo
+  # owner's own pull requests and pushes get staging's secrets. Anyone else's, a bot's or an AI
+  # agent's included, gets this notice instead, and the skipped checks count as passed. Forks and
+  # Dependabot get no secrets in any case.
+  skipped:
+    name: Preview checks skipped
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.user.login != github.repository_owner ||
+      github.actor != github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo "::notice::The preview checks run only on the repo owner's own pull requests and pushes."
+
+  preview:
+    name: Find the preview
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == github.repository_owner &&
+      github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      deployments: read
+    outputs:
+      url: ${{ steps.wait.outputs.url }}
+    steps:
+      # Vercel reports each preview through GitHub's deployments API while its deployment_status
+      # events are on (Project Settings → Git). Only vercel[bot]'s deployments and statuses
+      # count, and only at this project's own addresses, <project>-<id>-<team>.vercel.app, since
+      # the checks send that address Vercel's bypass secret.
+      - name: Wait for Vercel's preview of this commit
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 60); do
+            id=$(gh api "repos/$GITHUB_REPOSITORY/deployments?sha=$SHA" --jq \
+              '[.[] | select(.creator.login == "vercel[bot]" and (.environment | startswith("Preview")))][0].id // empty')
+            if [ -n "$id" ]; then
+              # Newest first. A later deployment can mark a ready one inactive, so a success counts.
+              status=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" --jq \
+                'map(select(.creator.login == "vercel[bot]"))
+                  | (map(select(.state == "success"))[0] // .[0] // {})
+                  | "\(.state // "pending") \(.environment_url // "")"')
+              state=${status%% *}
+              url=${status#* }
+              case "$state" in
+                success)
+                  if [[ ! "$url" =~ ^https://curio-[a-z0-9-]+-josh098900s-projects\.vercel\.app$ ]]; then
+                    echo "::error::Vercel's preview of $SHA isn't at one of this project's addresses."
+                    exit 1
+                  fi
+                  echo "Vercel's preview of $SHA is at $url."
+                  echo "url=$url" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+                failure | error)
+                  echo "::error::Vercel couldn't deploy the preview of $SHA."
+                  exit 1
+                  ;;
+              esac
+            fi
+            sleep 15
+          done
+          echo "::error::No Vercel preview of $SHA was ready within 15 minutes. Check that Vercel's deployment_status events are on (Project Settings → Git)."
+          exit 1
+
+  # In the smoke and Lighthouse jobs, only the sign-in step gets staging's `ci_preview` key and the
+  # bypass secret. It leaves Vercel's bypass cookie and the session on the runner, so the checks
+  # and their dependencies run with neither secret (spec §13.4), and the sign-out needs only the
+  # publishable key. The sign-out runs even when a check fails or the run is cancelled.
+  smoke:
+    name: Smoke tests and axe
+    needs: preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Nothing is deployed, so GitHub records no deployment.
+    environment:
+      name: staging
+      deployment: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web exec playwright install --with-deps --only-shell chromium
+      - name: Sign in as the staging test account
+        id: signin
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_CI_KEY: ${{ secrets.STAGING_CI_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: pnpm --filter web test:preview --project sign-in --no-deps
+      - name: Smoke tests and axe
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+        run: pnpm --filter web test:preview --project smoke --no-deps
+      - name: Sign out
+        if: ${{ always() && steps.signin.outcome != 'skipped' }}
+        env:
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+        run: pnpm --filter web test:preview --project sign-out --no-deps
+
+  lighthouse:
+    name: Lighthouse budgets
+    needs: preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: staging
+      deployment: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile
+      # Lighthouse needs the full browser, in the new headless mode.
+      - run: pnpm --filter web exec playwright install --with-deps --no-shell chromium
+      - name: Sign in as the staging test account
+        id: signin
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_CI_KEY: ${{ secrets.STAGING_CI_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: pnpm --filter web test:preview --project sign-in --no-deps
+      - name: Lighthouse budgets
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+        run: pnpm --filter web test:preview --project budgets --no-deps
+      - name: Sign out
+        if: ${{ always() && steps.signin.outcome != 'skipped' }}
+        env:
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+        run: pnpm --filter web test:preview --project sign-out --no-deps
+
+  zap:
+    name: ZAP baseline scan
+    needs: preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: staging
+      deployment: false
+    steps:
+      # A passive scan, which reports every alert. Alerts at FAIL_AT_RISK or above fail the check:
+      # 3 is high. T14 adds the security headers and lowers it to 2, medium (NF-SEC-01). ZAP sends
+      # the bypass secret only to the preview's host, and its report stays on the runner.
+      # The image is pinned, but ZAP updates its add-ons as it starts, which keeps its rules
+      # current. Dependabot can't see an image named in a script, so update the pin by hand.
+      - name: Scan the preview
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+          FAIL_AT_RISK: 3
+          ZAP_AUTH_HEADER: x-vercel-protection-bypass
+          ZAP_AUTH_HEADER_VALUE: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          export ZAP_AUTH_HEADER_SITE="${PREVIEW_URL#https://}"
+          # The bypass must work, or ZAP would scan Vercel's sign-in page and pass. The header is
+          # read from stdin, so the secret stays off the command line.
+          answer=$(printf 'x-vercel-protection-bypass: %s\n' "$ZAP_AUTH_HEADER_VALUE" |
+            curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H @- "$PREVIEW_URL")
+          if [ "$answer" != "200" ]; then
+            echo "::error::The preview didn't answer through Vercel's bypass (HTTP $answer)."
+            exit 1
+          fi
+          mkdir -m 777 zap
+          status=0
+          docker run --rm -v "$PWD/zap:/zap/wrk:rw" -e ZAP_AUTH_HEADER -e ZAP_AUTH_HEADER_VALUE -e ZAP_AUTH_HEADER_SITE \
+            ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
+            zap-baseline.py -t "$PREVIEW_URL" -J report.json -I || status=$?
+          if [ ! -s zap/report.json ]; then
+            echo "::error::ZAP didn't finish the scan (exit code $status)."
+            exit 1
+          fi
+          # The report must cover the preview, and nowhere a redirect led.
+          if ! jq -e --arg host "$ZAP_AUTH_HEADER_SITE" \
+              '[.site[]?."@host"] | length > 0 and all(. == $host)' zap/report.json > /dev/null; then
+            echo "::error::ZAP's report doesn't cover the preview alone."
+            exit 1
+          fi
+          {
+            echo "### ZAP baseline scan"
+            echo
+            echo "| Risk (confidence) | Alert | Instances |"
+            echo "| --- | --- | --- |"
+            jq -r '.site[]?.alerts[]? | "| \(.riskdesc) | \(.alert) | \(.count) |"' zap/report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+          failing=$(jq --argjson at "$FAIL_AT_RISK" \
+            '[.site[]?.alerts[]? | select((.riskcode | tonumber) >= $at)] | length' zap/report.json)
+          if [ "$failing" -gt 0 ]; then
+            echo "::error::ZAP raised $failing kinds of alert at risk $FAIL_AT_RISK or above. The run's summary lists them."
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::error::ZAP stopped with exit code $status."
+            exit 1
+          fi
+          echo "ZAP raised no alert at risk $FAIL_AT_RISK or above."

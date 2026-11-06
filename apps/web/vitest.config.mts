@@ -10,7 +10,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
-    exclude: [...configDefaults.exclude, "e2e/**"],
+    // Playwright runs these: the journeys, and the checks on preview deployments.
+    exclude: [...configDefaults.exclude, "e2e/**", "preview/**/*.spec.ts"],
     passWithNoTests: true,
     coverage: {
       provider: "v8",
