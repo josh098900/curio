@@ -14,9 +14,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash # bash -eo pipefail
+
 # A pull request runs these on every push to its branch, against the result of merging it.
 # There's one run per push, so no skipped copy can stand in for a required check. Pull
-# requests from forks run them too, with no secrets (CI uses none).
+# requests from forks run them too, with no secrets (CI uses none). No job keeps a package
+# cache: one that a dependency running here could rewrite would reach the deploy jobs, which
+# hold the database URLs.
 jobs:
   checks:
     name: Lint, types, format and unit tests
@@ -30,6 +36,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: 2.9.8
@@ -52,6 +59,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - run: pnpm install --frozen-lockfile
       # Only what the tests and the type generation need. Kong stays, because the CLI checks
       # the other services' health through it.
@@ -84,6 +92,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web build
 
@@ -117,13 +126,45 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Scan the whole history
+      - name: Install gitleaks
         run: |
           curl -fsSLo "$RUNNER_TEMP/gitleaks.tar.gz" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
           tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
-          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose .
+      # A made-up secret of each kind in .github/gitleaks.toml must be caught, so a weakened rule
+      # fails here instead of letting a real secret through.
+      - name: Check the rules still catch each kind of secret
+        run: |
+          random() { openssl rand -base64 96 | tr -dc "$1" | cut -c1-"$2"; }
+          samples="$RUNNER_TEMP/samples"
+          mkdir -p "$samples"
+          printf 'postgresql://postgres.%s:%s@aws-1-eu-west-2.pooler.supabase.com:5432/postgres\n' \
+            "$(random a-z 20)" "$(random A-Za-z0-9 24)" > "$samples/database-url"
+          printf 'sb_secret_%s\n' "$(random A-Za-z0-9 31)" > "$samples/supabase-secret-key"
+          printf 'sbp_%s\n' "$(openssl rand -hex 20)" > "$samples/supabase-access-token"
+          printf 're_%s_%s\n' "$(random A-Za-z0-9 8)" "$(random A-Za-z0-9 24)" > "$samples/resend-api-key"
+          printf 'api_key = "%s"\n' "$(random A-Za-z0-9 32)" > "$samples/generic-api-key"
+          for sample in "$samples"/*; do
+            if "$RUNNER_TEMP/gitleaks" dir --config .github/gitleaks.toml --no-banner --redact "$sample" > /dev/null 2>&1; then
+              echo "::error::No rule caught the made-up $(basename "$sample")."
+              exit 1
+            fi
+          done
+          echo "Every kind of secret was caught."
+      # Letting a finding through takes a visible change to this file or to the rules: no ignore
+      # file, no inline allow comments, and no committed attributes hiding a file's text from git's
+      # diffs. Text typed while resolving a merge conflict is in no commit's diff, so the files as
+      # checked out are scanned as well.
+      - name: Scan the whole history, and the files
+        run: |
+          if [ -e .gitleaksignore ]; then
+            echo "::error::.gitleaksignore isn't allowed. Change .github/gitleaks.toml instead."
+            exit 1
+          fi
+          printf '* diff\n' > .git/info/attributes
+          "$RUNNER_TEMP/gitleaks" git --config .github/gitleaks.toml --ignore-gitleaks-allow --redact --no-banner --verbose .
+          "$RUNNER_TEMP/gitleaks" dir --config .github/gitleaks.toml --ignore-gitleaks-allow --redact --no-banner --verbose .
 
   audit:
     name: Dependency audit
@@ -138,5 +179,12 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      # Letting an advisory through takes a visible change to this file: no exceptions in the
+      # package settings, and the advisories come from npm's own registry.
       - name: Fail on high or critical advisories (NFR-SEC-08)
-        run: pnpm audit --audit-level high
+        run: |
+          if grep -snE 'auditConfig|ignoreCves|ignoreGhsas|ignore-cves|ignore-ghsas' pnpm-workspace.yaml package.json .npmrc; then
+            echo "::error::Audit exceptions aren't allowed in the package settings."
+            exit 1
+          fi
+          pnpm audit --audit-level high --registry https://registry.npmjs.org/

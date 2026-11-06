@@ -26,7 +26,8 @@ jobs:
   staging:
     name: Migrate staging
     # Only a CI run for a push to this repo. GitHub reports a pushed tag's name as if it were a
-    # branch, so each job also checks that the commit is on main before running any of its code.
+    # branch, so each job also checks that the commit is main's latest before running any of its
+    # code. That also stops a re-run of an older CI run from rolling staging and production back.
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
@@ -45,17 +46,20 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Check the commit is on main
+      - name: Check the commit is main's latest
         run: |
-          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
-            echo "::error::$SHA isn't on main, so it isn't deployed."
+          if [ "$SHA" != "$(git rev-parse refs/remotes/origin/main)" ]; then
+            echo "::error::$SHA isn't main's latest commit, so it isn't deployed. The latest commit's own run deploys it."
             exit 1
           fi
-          echo "Deploying $SHA, which is on main." >> "$GITHUB_STEP_SUMMARY"
+          echo "Deploying $SHA, main's latest commit." >> "$GITHUB_STEP_SUMMARY"
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      # No package cache: one that another job could have rewritten would run beside the
+      # database URL.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       # The root package only: the Supabase CLI and Prettier, not the whole workspace.
       - run: pnpm install --frozen-lockfile --filter curio
       - name: Apply the migrations
@@ -92,16 +96,17 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Check the commit is on main
+      - name: Check the commit is main's latest
         run: |
-          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
-            echo "::error::$SHA isn't on main, so it isn't deployed."
+          if [ "$SHA" != "$(git rev-parse refs/remotes/origin/main)" ]; then
+            echo "::error::$SHA isn't main's latest commit, so it isn't deployed. The latest commit's own run deploys it."
             exit 1
           fi
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false
       - run: pnpm install --frozen-lockfile --filter curio
       - name: Apply the migrations
         env:
