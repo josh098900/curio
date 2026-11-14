@@ -2,7 +2,7 @@
 -- §3.1, spec §14.2). They cover the schemas Curio's migrations own, public and private.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(11);
 
 -- DB-SCH-02's allow-list. Add each function in the change that creates it: the public RPC
 -- functions, and the private functions that RLS policies, views and caller-rights SQL functions
@@ -10,6 +10,12 @@ select plan(10);
 -- can't call them, because it can't use the private schema (DB-SCH-04). Anon runs only
 -- public.health(), which reads nothing and returns true for the health check (spec §9, §14.3).
 create temporary table allow_list (signature text primary key);
+
+insert into allow_list (signature) values
+  ('private.is_participant(uuid)'),
+  ('private.is_admin()'),
+  ('private.is_blocked(uuid)'),
+  ('private.now()');
 
 select is_empty(
   $$
@@ -63,15 +69,19 @@ select set_eq(
   'DB-SCH-02 authenticated can run exactly the allow-list'
 );
 
+-- Full signatures, so an overload such as is_blocked(uuid, uuid), which could ask about someone
+-- other than the caller, can't join the list under a known name. raise_error() doesn't exist
+-- yet; T12 creates it and pins its signature here.
 select is_empty(
   $$
     select signature
     from allow_list
     where signature like 'private.%'
-      and split_part(signature, '(', 1) not in (
-        'private.is_participant', 'private.is_admin', 'private.is_blocked',
-        'private.now', 'private.raise_error'
+      and signature not in (
+        'private.is_participant(uuid)', 'private.is_admin()', 'private.is_blocked(uuid)',
+        'private.now()'
       )
+      and split_part(signature, '(', 1) <> 'private.raise_error'
   $$,
   'DB-SCH-02 in private, the allow-list holds only the policy helpers, now() and raise_error()'
 );
@@ -101,6 +111,39 @@ select is_empty(
       and has_schema_privilege(r.rolname, n.oid, 'usage')
   $$,
   'DB-SCH-04 anon and authenticated can''t use the private schema'
+);
+
+-- Policies and caller-rights functions reach private objects by their id, without using the
+-- schema, so a stray grant on one would be readable through them.
+select is_empty(
+  $$
+    select r.rolname || ': ' || privilege || ' on ' || c.relname
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    cross join (values ('anon'), ('authenticated')) as r (rolname)
+    cross join unnest(array[
+      'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'
+    ]) as privilege
+    where n.nspname = 'private' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+      and has_table_privilege(r.rolname, c.oid, privilege)
+    union all
+    select r.rolname || ': ' || privilege || ' on a column of ' || c.relname
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    cross join (values ('anon'), ('authenticated')) as r (rolname)
+    cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'REFERENCES']) as privilege
+    where n.nspname = 'private' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+      and has_any_column_privilege(r.rolname, c.oid, privilege)
+    union all
+    select r.rolname || ': ' || privilege || ' on ' || c.relname
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    cross join (values ('anon'), ('authenticated')) as r (rolname)
+    cross join unnest(array['USAGE', 'SELECT', 'UPDATE']) as privilege
+    where n.nspname = 'private' and c.relkind = 'S'
+      and has_sequence_privilege(r.rolname, c.oid, privilege)
+  $$,
+  'DB-SCH-04 anon and authenticated hold no privilege on any table, view, column or sequence in private'
 );
 
 -- An index serves a foreign key when its leading columns are the key's columns. A partial
