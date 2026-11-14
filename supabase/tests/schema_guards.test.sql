@@ -15,7 +15,8 @@ insert into allow_list (signature) values
   ('private.is_participant(uuid)'),
   ('private.is_admin()'),
   ('private.is_blocked(uuid)'),
-  ('private.now()');
+  ('private.now()'),
+  ('private.raise_error(text, jsonb)');
 
 select is_empty(
   $$
@@ -70,8 +71,7 @@ select set_eq(
 );
 
 -- Full signatures, so an overload such as is_blocked(uuid, uuid), which could ask about someone
--- other than the caller, can't join the list under a known name. raise_error() doesn't exist
--- yet; T12 creates it and pins its signature here.
+-- other than the caller, can't join the list under a known name.
 select is_empty(
   $$
     select signature
@@ -79,9 +79,8 @@ select is_empty(
     where signature like 'private.%'
       and signature not in (
         'private.is_participant(uuid)', 'private.is_admin()', 'private.is_blocked(uuid)',
-        'private.now()'
+        'private.now()', 'private.raise_error(text, jsonb)'
       )
-      and split_part(signature, '(', 1) <> 'private.raise_error'
   $$,
   'DB-SCH-02 in private, the allow-list holds only the policy helpers, now() and raise_error()'
 );
