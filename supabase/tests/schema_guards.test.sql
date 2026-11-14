@@ -2,7 +2,7 @@
 -- §3.1, spec §14.2). They cover the schemas Curio's migrations own, public and private.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(11);
+select plan(16);
 
 -- DB-SCH-02's allow-list. Add each function in the change that creates it: the public RPC
 -- functions, and the private functions that RLS policies, views and caller-rights SQL functions
@@ -167,6 +167,88 @@ select is_empty(
       )
   $$,
   'DB-SCH-07 every foreign key has an index that starts with its columns'
+);
+
+-- DB-SCH-08: the error-code fitness function. Functions raise errors only through
+-- private.raise_error, with a literal code from its own list, so the database and the contracts
+-- package share one list (UT-ERR-01 compares them). Only whole-line comments are left out of the
+-- scan, so text after "--" inside a string can't hide anything.
+select is_empty(
+  $$
+    select n.nspname || '.' || p.proname
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'private') and p.prokind in ('f', 'p')
+      and p.oid <> 'private.raise_error(text, jsonb)'::regprocedure
+      and regexp_replace(pg_get_functiondef(p.oid), '^[ \t]*--[^\n]*', '', 'gn') ~* '\m(raise|assert)\M'
+  $$,
+  'DB-SCH-08 no function raises an error itself, by raise or assert: each goes through private.raise_error'
+);
+
+-- raise_error itself raises in exactly four places, all its own: the unknown code, the refused
+-- details, and the error with and without details.
+select is(
+  (select count(*)::integer
+   from pg_proc p,
+     regexp_matches(regexp_replace(p.prosrc, '^[ \t]*--[^\n]*', '', 'gn'), '\m(raise|assert)\M', 'gi') as m
+   where p.oid = 'private.raise_error(text, jsonb)'::regprocedure),
+  4,
+  'DB-SCH-08 raise_error raises in exactly its four places'
+);
+
+select is_empty(
+  $$
+    with codes as (
+      select (regexp_matches(p.prosrc, $re$when '([A-Z_]+)' then '[0-9]{3}'$re$, 'g'))[1] as code
+      from pg_proc p
+      where p.oid = 'private.raise_error(text, jsonb)'::regprocedure
+    ),
+    bodies as (
+      select n.nspname || '.' || p.proname as function_name,
+        regexp_replace(pg_get_functiondef(p.oid), '^[ \t]*--[^\n]*', '', 'gn') as body
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname in ('public', 'private') and p.prokind in ('f', 'p')
+        and p.oid <> 'private.raise_error(text, jsonb)'::regprocedure
+    )
+    select b.function_name || ' raises ' || m[1]
+    from bodies b, regexp_matches(b.body, $re$raise_error"?\s*\(\s*'([^']*)'$re$, 'g') as m
+    where m[1] not in (select code from codes)
+    union all
+    select b.function_name || ' calls raise_error without a literal code'
+    from bodies b
+    where (select count(*) from regexp_matches(b.body, $re$raise_error"?\s*\($re$, 'g'))
+      <> (select count(*) from regexp_matches(b.body, $re$raise_error"?\s*\(\s*'$re$, 'g'))
+  $$,
+  'DB-SCH-08 every call to raise_error names one of its codes in spec 14.4, as a literal'
+);
+
+-- A policy that raised would turn "row hidden" into an error that shows the row exists.
+select is_empty(
+  $$
+    select schemaname || '.' || tablename || ': ' || policyname
+    from pg_policies
+    where coalesce(qual, '') ~ 'raise_error' or coalesce(with_check, '') ~ 'raise_error'
+    union all
+    select schemaname || '.' || viewname
+    from pg_views
+    where schemaname in ('public', 'private') and definition ~ 'raise_error'
+  $$,
+  'DB-SCH-08 no policy or view raises an error: they only filter'
+);
+
+-- Nor through a function it calls.
+select is_empty(
+  $$
+    select distinct d.classid::regclass::text || ' calls ' || d.refobjid::regprocedure::text
+    from pg_depend d
+    join pg_proc p on p.oid = d.refobjid
+    where d.classid in ('pg_policy'::regclass, 'pg_rewrite'::regclass)
+      and d.refclassid = 'pg_proc'::regclass
+      and p.oid <> 'private.raise_error(text, jsonb)'::regprocedure
+      and p.prokind = 'f' and pg_get_functiondef(p.oid) ~ 'raise_error'
+  $$,
+  'DB-SCH-08 no policy or view calls a function that raises an error'
 );
 
 -- An extension's objects take its schema's grants, and some extensions grant to everyone

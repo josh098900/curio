@@ -36,6 +36,21 @@ const requireServerOnly = {
 const supabaseMessage =
   "Reach Supabase through the data access layer in src/server.";
 
+// Text a person wrote is rendered escaped, never run (UT-VAL-13, .claude/rules/web.md). React
+// escapes what it renders, so these are the ways round it: raw HTML in a prop, a frame's
+// srcDoc, writing HTML into the page, and Mapbox's popup HTML. A safe use needs a reviewed
+// exception here.
+const rawHtmlMessage =
+  "Render text a person wrote as text. Raw HTML would let it run (UT-VAL-13).";
+const rawHtmlSelectors = [
+  "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+  "Property[key.name='dangerouslySetInnerHTML']",
+  "JSXAttribute[name.name=/^srcdoc$/i]",
+  "AssignmentExpression[left.property.name=/^(innerHTML|outerHTML)$/]",
+  "CallExpression[callee.property.name=/^(insertAdjacentHTML|setHTML|createContextualFragment)$/]",
+  "CallExpression[callee.object.name='document'][callee.property.name=/^(write|writeln)$/]",
+].map((selector) => ({ selector, message: rawHtmlMessage }));
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -127,8 +142,25 @@ const eslintConfig = defineConfig([
           message:
             "Give import() a plain string, so lint can check what it loads.",
         },
+        ...rawHtmlSelectors,
       ],
     },
+  },
+  // Raw HTML everywhere in the app, src/server and src/proxy.ts included (UT-VAL-13). The other
+  // files get the same selectors in the Supabase block above, since a later no-restricted-syntax
+  // would replace an earlier one rather than add to it.
+  {
+    files: [`src/**/*.${scripts}`],
+    rules: {
+      "react/no-danger": ["error", { customComponentNames: ["*"] }],
+      "no-eval": "error",
+      "no-implied-eval": "error",
+      "no-new-func": "error",
+    },
+  },
+  {
+    files: [`src/server/**/*.${scripts}`, `src/proxy.${scripts}`],
+    rules: { "no-restricted-syntax": ["error", ...rawHtmlSelectors] },
   },
   {
     files: [`src/server/**/*.${scripts}`],
