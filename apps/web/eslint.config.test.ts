@@ -108,3 +108,117 @@ describe("import boundaries", () => {
     );
   });
 });
+
+describe("UT-VAL-13 HTML or a script tag in any text field", () => {
+  // The contracts package accepts it as plain text. React escapes text it renders, so it could
+  // only run through raw HTML, which these rules refuse everywhere in the app.
+  const refused: [string, string, string, string][] = [
+    [
+      "raw HTML on an element",
+      "src/features/demo/bio.tsx",
+      "export const Bio = ({ bio }: { bio: string }) => <p dangerouslySetInnerHTML={{ __html: bio }} />;\n",
+      "react/no-danger",
+    ],
+    [
+      "raw HTML passed to a component",
+      "src/features/demo/bio.tsx",
+      "const Box = (props: object) => <div {...props} />;\nexport const Bio = ({ bio }: { bio: string }) => <Box dangerouslySetInnerHTML={{ __html: bio }} />;\n",
+      "react/no-danger",
+    ],
+    [
+      "raw HTML spread from an object",
+      "src/features/demo/bio.tsx",
+      "export const Bio = ({ bio }: { bio: string }) => <p {...{ dangerouslySetInnerHTML: { __html: bio } }} />;\n",
+      "no-restricted-syntax",
+    ],
+    [
+      "raw HTML through createElement",
+      "src/features/demo/bio.ts",
+      'import { createElement } from "react";\nexport const bio = (text: string) => createElement("p", { dangerouslySetInnerHTML: { __html: text } });\n',
+      "no-restricted-syntax",
+    ],
+    [
+      "a frame's srcDoc",
+      "src/features/demo/frame.tsx",
+      'export const Frame = ({ html }: { html: string }) => <iframe title="x" srcDoc={html} />;\n',
+      "no-restricted-syntax",
+    ],
+    [
+      "innerHTML",
+      "src/features/demo/dom.ts",
+      "export const show = (el: HTMLElement, text: string) => { el.innerHTML = text; };\n",
+      "no-restricted-syntax",
+    ],
+    [
+      "outerHTML",
+      "src/features/demo/dom.ts",
+      "export const show = (el: HTMLElement, text: string) => { el.outerHTML = text; };\n",
+      "no-restricted-syntax",
+    ],
+    [
+      "insertAdjacentHTML",
+      "src/features/demo/dom.ts",
+      'export const show = (el: HTMLElement, text: string) => el.insertAdjacentHTML("beforeend", text);\n',
+      "no-restricted-syntax",
+    ],
+    [
+      "Mapbox's popup HTML",
+      "src/features/demo/map.ts",
+      "export const show = (popup: { setHTML(html: string): void }, text: string) => popup.setHTML(text);\n",
+      "no-restricted-syntax",
+    ],
+    [
+      "document.write",
+      "src/features/demo/dom.ts",
+      "export const show = (text: string) => document.write(text);\n",
+      "no-restricted-syntax",
+    ],
+    [
+      "createContextualFragment",
+      "src/features/demo/dom.ts",
+      "export const show = (range: Range, text: string) => range.createContextualFragment(text);\n",
+      "no-restricted-syntax",
+    ],
+    [
+      "eval",
+      "src/features/demo/run.ts",
+      "export const run = (text: string) => eval(text);\n",
+      "no-eval",
+    ],
+    [
+      "a string run as code (the rule sees strings, not a bare variable, which needs type information)",
+      "src/features/demo/run.ts",
+      "export const run = (text: string) => setTimeout('show(' + text + ')', 0);\n",
+      "no-implied-eval",
+    ],
+    [
+      "new Function",
+      "src/features/demo/run.ts",
+      "export const run = (text: string) => new Function(text);\n",
+      "no-new-func",
+    ],
+    [
+      "raw HTML in server code",
+      "src/server/page.ts",
+      'import "server-only";\nexport const show = (el: HTMLElement, text: string) => { el.innerHTML = text; };\n',
+      "no-restricted-syntax",
+    ],
+  ];
+
+  it.each(refused)(
+    "UT-VAL-13 is never run: %s is refused",
+    async (_, filePath, code, rule) => {
+      expect(await rulesBroken(code, filePath)).toContain(rule);
+    },
+  );
+
+  it("UT-VAL-13 text rendered as text is fine", async () => {
+    const broken = await rulesBroken(
+      "export const Bio = ({ bio }: { bio: string }) => <p>{bio}</p>;\n",
+      "src/features/demo/bio.tsx",
+    );
+    for (const rule of ["react/no-danger", "no-restricted-syntax"]) {
+      expect(broken).not.toContain(rule);
+    }
+  });
+});
