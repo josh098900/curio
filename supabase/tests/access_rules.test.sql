@@ -1,5 +1,5 @@
 -- Access rules that cover every table (test specification §3.2). Each feature's own policies
--- are tested with the feature. The rows are made here, since the seed cast arrives with T09.
+-- are tested with the feature. The rows are made here, with their own ids, so the test doesn't depend on the seed cast.
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(6);

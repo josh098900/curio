@@ -1,7 +1,7 @@
 -- The data dictionary's rules, enforced by the database itself (test specification §3.1).
 -- DB-SCH-05 covers every CHECK in the dictionary, with a refusing case for each rule and passing
 -- cases at the edges. DB-SCH-06 covers every primary and unique key.
--- The rows are made here, since the seed cast arrives with T09.
+-- The rows are made here, with their own ids, so the test doesn't depend on the seed cast.
 begin;
 create extension if not exists pgtap with schema extensions;
 

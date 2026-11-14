@@ -1,5 +1,5 @@
 -- The activity_status view at each edge (FR-ACT-10, D13, ADR-008), with the clock pinned
--- through private.now(). The rows are made here, since the seed cast arrives with T09.
+-- through private.now(). The rows are made here, with their own ids, so the test doesn't depend on the seed cast.
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(18);
