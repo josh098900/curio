@@ -68,10 +68,10 @@ The data dictionary's conventions, which are applied everywhere:
 ## Tests (`supabase/tests`)
 
 - pgTAP tests named by their test specification ID, each inside a transaction that rolls back.
-- `seed.sql` starts with the test-clock mark, a comment on the database: `private.now()` honours `curio.test_now` only on a database carrying it, and the hosted projects never run the seed.
-- Act as the seed fixtures: `anon`, `nova`, `uma`, `pia`, `vic`, `hal`, `bea`, `sam`, `rex`, `ref`, `sta` and `adm`, with activities A1–A7 and hostels H1 and H2. `seed.sql` holds exactly the cast in test specification §1. Changing it means changing that table first, so ask.
+- `seed.sql` holds, in order: the test-clock mark, a comment on the database (`private.now()` honours `curio.test_now` only on a database carrying it); the test helpers in the `tests` schema; and the test cast. The hosted projects never run the seed, so neither the mark nor the helpers ever reach them, and the seed refuses to run on a database that already has sign-in accounts, as both hosted projects do.
+- Act as the seed fixtures: `anon`, `nova`, `uma`, `pia`, `vic`, `hal`, `bea`, `sam`, `rex`, `ref`, `sta` and `adm`, with activities A1–A7 and hostels H1 and H2. `seed.sql` holds exactly the cast in test specification §1, including its note on how the fixtures connect. Changing it means changing the test specification first, so ask. Use `tests.id('vic')`, `tests.id('A1')` or `tests.id('H1')` for a fixture's id, `tests.act_as('vic')` or `tests.act_as('anon')` to act as one, `tests.stop_acting()` to stop (not `reset role`, which keeps the last fixture's claims), and `tests.set_clock()` to pin the seed's time.
 - Every RPC function and policy has at least one passing and one refusing test (NFR-MAI-01).
-- Pin time with `select set_config('curio.test_now', '<time>', true)`, which `private.now()` reads. Never sleep.
+- Pin time with `select tests.set_clock('<time>')`, which sets `curio.test_now` for `private.now()`; with no argument it pins the seed's time. Never sleep.
 
 ## Commands
 

@@ -1,7 +1,7 @@
 -- The policy helpers (spec §9, §11): read-only, security definer, the caller always from
 -- auth.uid(), and only active accounts count (open question 10). The policies that use them
 -- arrive with their features, which test them again through the DB-RLS cases. The rows are made
--- here, since the seed cast arrives with T09.
+-- here, with their own ids, so the test doesn't depend on the seed cast.
 begin;
 create extension if not exists pgtap with schema extensions;
 select plan(18);
