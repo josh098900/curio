@@ -35,6 +35,31 @@ const requireServerOnly = {
 
 const supabaseMessage =
   "Reach Supabase through the data access layer in src/server.";
+// Outside src/server, nothing reaches the Supabase client or the backend calls directly: a server
+// action gets its one call from action(), and a page reads through a data access function in
+// src/server (.claude/rules/web.md).
+const dataAccessMessage =
+  "Reach the backend through action() in a server action, or a data access function in src/server.";
+const dataAccessInternals = [
+  "@/server/supabase",
+  "@/server/backend",
+  "**/server/supabase",
+  "**/server/backend",
+];
+const supabaseSyntax = [
+  {
+    selector: "ImportExpression[source.value=/^@supabase\\//]",
+    message: supabaseMessage,
+  },
+  {
+    selector: "ImportExpression[source.value=/server\\/(supabase|backend)$/]",
+    message: dataAccessMessage,
+  },
+  {
+    selector: 'ImportExpression[source.type!="Literal"]',
+    message: "Give import() a plain string, so lint can check what it loads.",
+  },
+];
 
 // Text a person wrote is rendered escaped, never run (UT-VAL-13, .claude/rules/web.md). React
 // escapes what it renders, so these are the ways round it: raw HTML in a prop, a frame's
@@ -51,15 +76,75 @@ const rawHtmlSelectors = [
   "CallExpression[callee.object.name='document'][callee.property.name=/^(write|writeln)$/]",
 ].map((selector) => ({ selector, message: rawHtmlMessage }));
 
+// Server code checks the session with getClaims(), which verifies the token. getSession() reads
+// the cookie without checking it, so it's refused everywhere in src, however it's reached:
+// called, passed around, destructured or named by a string (spec §13.2, WEB-ACT-03). So is
+// onAuthStateChange, whose callback gets the same unchecked session, and any computed name on
+// .auth, which lint couldn't read. These catch mistakes; code written to get round them is for
+// review to catch.
+const getSessionMessage =
+  "Check the session with getClaims(). getSession() reads the cookie without verifying it (WEB-ACT-03).";
+const getSessionSelectors = [
+  ...[
+    "MemberExpression[property.name='getSession']",
+    "MemberExpression[property.value='getSession']",
+    "MemberExpression > TemplateLiteral.property[quasis.0.value.cooked='getSession']",
+    "ObjectPattern > Property[key.name='getSession']",
+    "ObjectPattern > Property[key.value='getSession']",
+    "MemberExpression[property.name='onAuthStateChange']",
+  ].map((selector) => ({ selector, message: getSessionMessage })),
+  {
+    selector: "MemberExpression[computed=true][object.property.name='auth']",
+    message: "Name auth methods plainly, so lint can check them (WEB-ACT-03).",
+  },
+];
+
+// The tests' shared fakes in test/ are for tests alone.
+const testSupportMessage = "Only tests import the shared fakes in test/.";
+const testSupportSelectors = [
+  "ImportDeclaration",
+  "ImportExpression",
+  "ExportAllDeclaration",
+  "ExportNamedDeclaration",
+].map((node) => ({
+  selector: `${node}[source.value=/^(\\.\\.?\\/)+test\\//]`,
+  message: testSupportMessage,
+}));
+
+// Server actions live only in src/features/<feature>/actions.ts, each made with action() from
+// src/server/action.ts, where the tests find and check every one (WEB-ACT-01, 02 and 04). So
+// "use server" is refused anywhere else, inside a function even there, and in every other file
+// lint sees, outside src too. The selectors read the string's value, not its source text, so an
+// escape such as "use\x20server" can't hide one.
+const useServerMessage =
+  'Server actions go in src/features/<feature>/actions.ts, with "use server" as its first line, each made with action() (WEB-ACT-01).';
+const useServerAnywhere = {
+  selector: "ExpressionStatement[expression.value='use server']",
+  message: useServerMessage,
+};
+const useServerInFunctions = {
+  selector: ":function ExpressionStatement[expression.value='use server']",
+  message: useServerMessage,
+};
+const restrictedInTests = [...rawHtmlSelectors, ...getSessionSelectors];
+const restrictedEverywhere = [...restrictedInTests, ...testSupportSelectors];
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // Every file lint sees, outside src included; the blocks below give src its full lists.
+  {
+    files: [`**/*.${scripts}`],
+    rules: { "no-restricted-syntax": ["error", useServerAnywhere] },
+  },
   // Import boundaries (spec §14.2): features stay separate, and server code stays on the server.
   {
     files: [`src/**/*.${scripts}`],
     plugins: { boundaries },
     settings: {
       "boundaries/root-path": import.meta.dirname,
+      // The tests' shared fakes (test/), which only tests may import (testSupportSelectors).
+      "boundaries/ignore": ["test/**"],
       // An import the resolver can't place counts as a local file in no element, which
       // no-unknown-dependencies refuses, so a broken resolver fails the build instead of
       // switching the boundaries off. Workspace packages (@curio/*) count as external.
@@ -129,26 +214,37 @@ const eslintConfig = defineConfig([
     rules: {
       "no-restricted-imports": [
         "error",
-        { patterns: [{ group: ["@supabase/*"], message: supabaseMessage }] },
+        {
+          patterns: [
+            { group: ["@supabase/*"], message: supabaseMessage },
+            { group: dataAccessInternals, message: dataAccessMessage },
+          ],
+        },
       ],
       "no-restricted-syntax": [
         "error",
-        {
-          selector: "ImportExpression[source.value=/^@supabase\\//]",
-          message: supabaseMessage,
-        },
-        {
-          selector: 'ImportExpression[source.type!="Literal"]',
-          message:
-            "Give import() a plain string, so lint can check what it loads.",
-        },
-        ...rawHtmlSelectors,
+        ...supabaseSyntax,
+        ...restrictedEverywhere,
+        useServerAnywhere,
       ],
     },
   },
-  // Raw HTML everywhere in the app, src/server and src/proxy.ts included (UT-VAL-13). The other
-  // files get the same selectors in the Supabase block above, since a later no-restricted-syntax
-  // would replace an earlier one rather than add to it.
+  // The one place "use server" may start a file. A later no-restricted-syntax replaces an earlier
+  // one rather than adding to it, so each block repeats the full list.
+  {
+    files: ["src/features/*/actions.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...supabaseSyntax,
+        ...restrictedEverywhere,
+        useServerInFunctions,
+      ],
+    },
+  },
+  // Raw HTML and getSession() everywhere in the app, src/server and src/proxy.ts included
+  // (UT-VAL-13, WEB-ACT-03). The other files get the same selectors in the blocks above, since a
+  // later no-restricted-syntax would replace an earlier one rather than add to it.
   {
     files: [`src/**/*.${scripts}`],
     rules: {
@@ -160,7 +256,24 @@ const eslintConfig = defineConfig([
   },
   {
     files: [`src/server/**/*.${scripts}`, `src/proxy.${scripts}`],
-    rules: { "no-restricted-syntax": ["error", ...rawHtmlSelectors] },
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedEverywhere,
+        useServerAnywhere,
+      ],
+    },
+  },
+  // Tests may use the shared fakes.
+  {
+    files: ["src/**/*.test.*"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...restrictedInTests,
+        useServerAnywhere,
+      ],
+    },
   },
   {
     files: [`src/server/**/*.${scripts}`],

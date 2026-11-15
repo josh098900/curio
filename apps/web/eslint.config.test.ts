@@ -77,8 +77,6 @@ describe("import boundaries", () => {
     ).toEqual([]);
   });
 
-  // Supabase isn't installed yet, so these check only the Supabase rules: until T13 adds it, the
-  // unresolved import also counts as unknown.
   it("Supabase is imported only in src/server and src/proxy.ts", async () => {
     const code =
       'import { createClient } from "@supabase/supabase-js";\nexport const client = createClient;\n';
@@ -106,6 +104,51 @@ describe("import boundaries", () => {
     expect(await rulesBroken(code, "src/proxy.ts")).not.toContain(
       "no-restricted-imports",
     );
+  });
+
+  // A server action gets its one backend call from action(), and a page reads through a data
+  // access function, so nothing outside src/server reaches the client or the calls directly.
+  it("the Supabase client and the backend calls stay inside src/server", async () => {
+    for (const [code, filePath] of [
+      [
+        'import { createSupabase } from "@/server/supabase";\nexport const c = createSupabase;\n',
+        "src/features/demo/actions.ts",
+      ],
+      [
+        'import { oneCallBackend } from "@/server/backend";\nexport const b = oneCallBackend;\n',
+        "src/features/demo/queries.ts",
+      ],
+      [
+        'import { createSupabase } from "../../server/supabase";\nexport const c = createSupabase;\n',
+        "src/features/demo/queries.ts",
+      ],
+      [
+        'import { createSupabase } from "@/server/supabase";\nexport const c = createSupabase;\n',
+        "src/app/plans/page.tsx",
+      ],
+    ])
+      expect(await rulesBroken(code, filePath), filePath).toContain(
+        "no-restricted-imports",
+      );
+    for (const [code, filePath] of [
+      [
+        'export const load = () => import("@/server/backend");\n',
+        "src/features/demo/lazy.ts",
+      ],
+      [
+        '"use server";\nexport async function load() { return import("@supabase/supabase-js"); }\n',
+        "src/features/demo/actions.ts",
+      ],
+    ])
+      expect(await rulesBroken(code, filePath), filePath).toContain(
+        "no-restricted-syntax",
+      );
+    expect(
+      await rulesBroken(
+        '"use server";\nimport { action, noInput } from "@/server/action";\nexport const save = action({ input: noInput, run: async () => null });\n',
+        "src/features/demo/actions.ts",
+      ),
+    ).not.toContain("no-restricted-imports");
   });
 });
 
@@ -198,6 +241,12 @@ describe("UT-VAL-13 HTML or a script tag in any text field", () => {
       "no-new-func",
     ],
     [
+      "raw HTML in a feature's actions file",
+      "src/features/demo/actions.ts",
+      '"use server";\nexport async function show(el: HTMLElement, text: string) { el.innerHTML = text; }\n',
+      "no-restricted-syntax",
+    ],
+    [
       "raw HTML in server code",
       "src/server/page.ts",
       'import "server-only";\nexport const show = (el: HTMLElement, text: string) => { el.innerHTML = text; };\n',
@@ -220,5 +269,152 @@ describe("UT-VAL-13 HTML or a script tag in any text field", () => {
     for (const rule of ["react/no-danger", "no-restricted-syntax"]) {
       expect(broken).not.toContain(rule);
     }
+  });
+});
+
+describe("the shared fakes in test/ are for tests alone", () => {
+  const code =
+    'import { signedIn } from "../../test/fake-supabase";\nexport const s = signedIn;\n';
+
+  it.each([
+    "src/server/user.ts",
+    "src/features/demo/queries.ts",
+    "src/proxy.ts",
+  ])("refused in %s", async (filePath) => {
+    expect(await rulesBroken(code, filePath)).toContain("no-restricted-syntax");
+  });
+
+  it("a test may use them", async () => {
+    expect(await rulesBroken(code, "src/server/user.test.ts")).not.toContain(
+      "no-restricted-syntax",
+    );
+  });
+});
+
+describe("WEB-ACT-03 the server code never calls getSession()", () => {
+  // getSession() reads the cookie without verifying it (spec §13.2), however it's reached.
+  const refused: [string, string, string][] = [
+    [
+      "a call in the data access layer",
+      "src/server/user.ts",
+      'import "server-only";\nexport const user = (supabase: any) => supabase.auth.getSession();\n',
+    ],
+    [
+      "a call in a route handler",
+      "src/app/api/me/route.ts",
+      "export async function GET(supabase: any) { return Response.json(await supabase.auth.getSession()); }\n",
+    ],
+    [
+      "a call in a server component",
+      "src/app/plans/page.tsx",
+      "export default async function Page({ supabase }: { supabase: any }) { await supabase.auth.getSession(); return null; }\n",
+    ],
+    [
+      "a call in the proxy",
+      "src/proxy.ts",
+      "export async function proxy(supabase: any) { await supabase.auth.getSession(); }\n",
+    ],
+    [
+      "passing it around",
+      "src/features/demo/queries.ts",
+      "export const read = (supabase: any) => supabase.auth.getSession;\n",
+    ],
+    [
+      "destructuring it",
+      "src/features/demo/queries.ts",
+      "export const read = (supabase: any) => { const { getSession } = supabase.auth; return getSession(); };\n",
+    ],
+    [
+      "naming it with a string",
+      "src/features/demo/queries.ts",
+      "export const read = (supabase: any) => supabase.auth['getSession']();\n",
+    ],
+    [
+      "naming it with a template",
+      "src/features/demo/queries.ts",
+      "export const read = (supabase: any) => supabase.auth[`getSession`]();\n",
+    ],
+    [
+      "its unchecked session through onAuthStateChange",
+      "src/server/user.ts",
+      'import "server-only";\nexport const watch = (supabase: any) => supabase.auth.onAuthStateChange(() => {});\n',
+    ],
+    [
+      "a name worked out when it runs",
+      "src/features/demo/queries.ts",
+      "export const read = (supabase: any, name: string) => supabase.auth[name]();\n",
+    ],
+    [
+      "a call in a feature's actions file",
+      "src/features/demo/actions.ts",
+      '"use server";\nexport async function save(supabase: any) { await supabase.auth.getSession(); }\n',
+    ],
+  ];
+
+  it.each(refused)("WEB-ACT-03 refused: %s", async (_, filePath, code) => {
+    expect(await rulesBroken(code, filePath)).toContain("no-restricted-syntax");
+  });
+
+  it("WEB-ACT-03 getClaims() is fine", async () => {
+    expect(
+      await rulesBroken(
+        'import "server-only";\nexport const user = (supabase: any) => supabase.auth.getClaims();\n',
+        "src/server/user.ts",
+      ),
+    ).not.toContain("no-restricted-syntax");
+  });
+});
+
+describe('"use server" only starts a feature\'s actions.ts', () => {
+  // So the tests that find every server action miss none (WEB-ACT-01, 02 and 04).
+  const refused: [string, string, string][] = [
+    [
+      "an action inside a component",
+      "src/app/plans/page.tsx",
+      'export default function Page() { async function save() { "use server"; } return <form action={save} />; }\n',
+    ],
+    [
+      "an action inside a function in actions.ts",
+      "src/features/demo/actions.ts",
+      '"use server";\nexport async function save() { "use server"; }\n',
+    ],
+    [
+      "a feature file that isn't actions.ts",
+      "src/features/demo/save.ts",
+      '"use server";\nexport async function save() {}\n',
+    ],
+    [
+      "a file in src/server",
+      "src/server/save.ts",
+      '"use server";\nimport "server-only";\nexport async function save() {}\n',
+    ],
+    [
+      "a directive written with an escape",
+      "src/app/plans/page.tsx",
+      'export default function Page() { async function save() { "use\\x20server"; } return <form action={save} />; }\n',
+    ],
+    [
+      "a file outside src",
+      "test/helpers.ts",
+      '"use server";\nexport async function save() {}\n',
+    ],
+    [
+      "an actions file the tests don't look for",
+      "src/features/demo/actions.tsx",
+      '"use server";\nexport async function save() {}\n',
+    ],
+  ];
+
+  it.each(refused)("refused: %s", async (_, filePath, code) => {
+    expect(await rulesBroken(code, filePath)).toContain("no-restricted-syntax");
+  });
+
+  it("the first line of a feature's actions.ts is fine", async () => {
+    expect(
+      await rulesBroken(
+        '"use server";\nexport async function save() {}\n',
+        "src/features/demo/actions.ts",
+      ),
+    ).not.toContain("no-restricted-syntax");
   });
 });

@@ -14,16 +14,22 @@ export default defineConfig({
   projects: [
     { name: "sign-in", testMatch: /sign-in\.setup\.ts/, teardown: "sign-out" },
     { name: "sign-out", testMatch: /sign-out\.teardown\.ts/ },
+    // A step of its own in CI, without the sign-in's secrets (app-cookie.setup.ts).
+    {
+      name: "app-cookie",
+      testMatch: /app-cookie\.setup\.ts/,
+      dependencies: ["sign-in"],
+    },
     {
       name: "smoke",
       testMatch: /smoke\.spec\.ts/,
-      dependencies: ["sign-in"],
+      dependencies: ["app-cookie"],
       use: { ...devices["Desktop Chrome"], storageState: stateFile },
     },
     {
       name: "budgets",
       testMatch: /budgets\.spec\.ts/,
-      dependencies: ["sign-in"],
+      dependencies: ["app-cookie"],
     },
   ],
 });
