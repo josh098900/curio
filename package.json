@@ -15,7 +15,7 @@
     "test:functions": "cd supabase/functions && deno test --permit-no-files"
   },
   "devDependencies": {
-    "prettier": "3.9.10",
+    "prettier": "3.10.1",
     "supabase": "3.0.0"
   }
 }
