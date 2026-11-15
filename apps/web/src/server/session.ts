@@ -1,6 +1,7 @@
 import "server-only";
 import type { ErrorCode } from "@curio/contracts";
 import { isAuthRetryableFetchError } from "@supabase/supabase-js";
+import { TIMED_OUT, withinSupabaseTimeout } from "@/shared/supabase-settings";
 import { createSupabase, type ServerSupabase } from "./supabase";
 
 /** The signed-in user, as the rest of the app sees them: their id and nothing else. */
@@ -24,7 +25,10 @@ export async function checkSession(
   supabase: ServerSupabase,
 ): Promise<SessionCheck> {
   try {
-    const { data, error } = await supabase.auth.getClaims();
+    // A refresh and its retries get 15 seconds in all (spec §14.4).
+    const answer = await withinSupabaseTimeout(supabase.auth.getClaims());
+    if (answer === TIMED_OUT) return { unavailable: true };
+    const { data, error } = answer;
     // Auth couldn't be reached, or is refusing refreshes because too many arrived from the web
     // server's address (spec §13.8): neither is the same as being signed out.
     if (error && (isAuthRetryableFetchError(error) || error.status === 429))
