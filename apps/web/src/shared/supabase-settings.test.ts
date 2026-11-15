@@ -6,6 +6,8 @@ import {
   sessionCookieOptions,
   SUPABASE_TIMEOUT_MS,
   supabaseFetch,
+  TIMED_OUT,
+  withinSupabaseTimeout,
 } from "./supabase-settings";
 
 describe("sessionCookieOptions()", () => {
@@ -101,5 +103,29 @@ describe("supabaseFetch()", () => {
     });
     caller.abort(new DOMException("Stopped.", "AbortError"));
     await expect(call).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("withinSupabaseTimeout()", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("gives back the work's answer when it comes in time, leaving no timer", async () => {
+    vi.useFakeTimers();
+    expect(await withinSupabaseTimeout(Promise.resolve("claims"))).toBe(
+      "claims",
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops waiting after 15 seconds in all, and a late failure goes nowhere", async () => {
+    vi.useFakeTimers();
+    let fail!: (error: Error) => void;
+    const work = new Promise<string>((_resolve, reject) => (fail = reject));
+    const outcome = withinSupabaseTimeout(work);
+    await vi.advanceTimersByTimeAsync(SUPABASE_TIMEOUT_MS);
+    expect(await outcome).toBe(TIMED_OUT);
+    fail(new Error("Auth answered too late"));
   });
 });

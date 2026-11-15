@@ -8,6 +8,7 @@ import {
   COOKIE_NAME,
   es256Token,
   fakeNetwork,
+  hangs,
   pinTheClock,
   refreshedSession,
   refreshRefused,
@@ -17,6 +18,7 @@ import {
   useSupabaseSettings,
 } from "../test/fake-supabase";
 import { proxy } from "./proxy";
+import { SUPABASE_TIMEOUT_MS } from "./shared/supabase-settings";
 
 function requestWith(cookie?: { name: string; value: string }) {
   return new NextRequest("https://curio.example/plans", {
@@ -122,6 +124,27 @@ describe("WEB-ACT-11 proxy.ts", () => {
       }),
     );
     expectPassedOn(await proxy(requestWith(session.cookie)));
+  });
+
+  it("WEB-ACT-11 passes the request on after 15 seconds in all when a refresh hangs, retries included", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date("2027-01-10T12:00:00Z"));
+    const key = await signingKey();
+    const past = Math.floor(Date.now() / 1000) - 60;
+    fakeNetwork({ keys: [key.jwk], token: hangs });
+    let response: NextResponse | undefined;
+    const pending = proxy(
+      requestWith(
+        sessionCookie(await es256Token(key, claims({ exp: past })), {
+          expiresAt: past,
+        }),
+      ),
+    ).then((answer) => (response = answer));
+    await vi.advanceTimersByTimeAsync(SUPABASE_TIMEOUT_MS - 1);
+    expect(response).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expectPassedOn(response!);
   });
 
   it("WEB-ACT-11 passes requests on untouched without the Supabase settings, or with ones that won't work", async () => {

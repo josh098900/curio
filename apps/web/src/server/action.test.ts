@@ -225,6 +225,41 @@ describe("action()", () => {
     expect(await pending).toMatchObject({ ok: false, code: "UNAVAILABLE" });
   });
 
+  it.each([
+    ["doesn't answer", hangs],
+    [
+      "keeps failing at once",
+      () => new Response("Service unavailable", { status: 503 }),
+    ],
+  ])(
+    "is UNAVAILABLE after 15 seconds in all, retries included, when Auth %s during a refresh",
+    async (_, token) => {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      vi.setSystemTime(new Date("2027-01-10T12:00:00Z"));
+      const session = await signedIn();
+      const past = Math.floor(Date.now() / 1000) - 60;
+      vi.mocked(cookies).mockResolvedValue(
+        cookieJar([
+          sessionCookie(await es256Token(session.key, claims({ exp: past })), {
+            expiresAt: past,
+          }),
+        ]) as never,
+      );
+      fakeNetwork({ keys: session.keys, token });
+      let result: unknown;
+      const pending = action({
+        input: noInput,
+        run: async () => "done",
+      })().then((answer) => (result = answer));
+      // supabase-js would go on retrying for up to 30 seconds.
+      await vi.advanceTimersByTimeAsync(SUPABASE_TIMEOUT_MS - 1);
+      expect(result).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+      expect(result).toMatchObject({ ok: false, code: "UNAVAILABLE" });
+    },
+  );
+
   it("is UNAVAILABLE without the Supabase settings", async () => {
     vi.unstubAllEnvs();
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");

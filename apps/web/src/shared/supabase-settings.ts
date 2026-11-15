@@ -51,6 +51,29 @@ export async function supabaseFetch(
   }
 }
 
+/** What withinSupabaseTimeout() gives back when the work took too long. */
+export const TIMED_OUT = Symbol("timed out");
+
+/**
+ * Waits SUPABASE_TIMEOUT_MS in all for work that may make several calls to Supabase. getClaims()
+ * is one: refreshing a session, supabase-js retries a failed refresh for up to 30 seconds, waiting
+ * longer between each try, so supabaseFetch's timeout on each call doesn't bound it. The work
+ * isn't cancelled, only no longer waited for.
+ */
+export async function withinSupabaseTimeout<T>(
+  work: Promise<T>,
+): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), SUPABASE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([work, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function isLocalStack(supabaseUrl: string): boolean {
   try {
     const { protocol, hostname } = new URL(supabaseUrl);

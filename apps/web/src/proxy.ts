@@ -4,6 +4,7 @@ import {
   sessionCookieOptions,
   supabaseFetch,
   supabaseSettings,
+  withinSupabaseTimeout,
 } from "@/shared/supabase-settings";
 
 /**
@@ -40,7 +41,8 @@ export async function proxy(request: NextRequest) {
         },
       },
     });
-    await supabase.auth.getClaims();
+    // A refresh and its retries get 15 seconds in all, then the page goes on (spec §14.4).
+    await withinSupabaseTimeout(supabase.auth.getClaims());
   } catch {}
   return response;
 }
