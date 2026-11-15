@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "./Link";
 import type { ComponentProps, ReactNode } from "react";
 import styles from "./Button.module.css";
 

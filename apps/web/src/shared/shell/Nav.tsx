@@ -7,7 +7,7 @@ import {
   IconCompass,
   IconUser,
 } from "@tabler/icons-react";
-import Link from "next/link";
+import { Link } from "../ui/Link";
 import { usePathname } from "next/navigation";
 import styles from "./Nav.module.css";
 import { Wordmark } from "./Wordmark";

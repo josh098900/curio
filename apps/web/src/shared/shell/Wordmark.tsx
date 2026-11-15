@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "../ui/Link";
 import styles from "./Wordmark.module.css";
 
 /** The placeholder logo: "curio" in Plex Sans 600, in the theme's text colour (brief §3). */

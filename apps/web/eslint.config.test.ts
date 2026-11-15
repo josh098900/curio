@@ -272,6 +272,27 @@ describe("UT-VAL-13 HTML or a script tag in any text field", () => {
   });
 });
 
+describe("every link is the shared Link, which never prefetches", () => {
+  const code =
+    'import Link from "next/link";\nexport const A = () => <Link href="/plans">Plans</Link>;\n';
+
+  it.each([
+    "src/app/page.tsx",
+    "src/features/demo/row.tsx",
+    "src/shared/shell/Nav.tsx",
+  ])("next/link is refused in %s", async (filePath) => {
+    expect(await rulesBroken(code, filePath)).toContain(
+      "no-restricted-imports",
+    );
+  });
+
+  it("the shared Link may use it", async () => {
+    expect(await rulesBroken(code, "src/shared/ui/Link.tsx")).not.toContain(
+      "no-restricted-imports",
+    );
+  });
+});
+
 describe("no inline styles, which the CSP refuses", () => {
   it.each([
     [

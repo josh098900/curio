@@ -1,6 +1,6 @@
 import { IconLogout } from "@tabler/icons-react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import { Link } from "@/shared/ui/Link";
 import { safeNextPath, SIGN_IN_PATH } from "@/shared/navigation";
 import { SystemPage } from "@/shared/shell/SystemPage";
 import { ButtonLink } from "@/shared/ui/Button";
