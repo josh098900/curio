@@ -1,6 +1,7 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { expect, test as teardown } from "@playwright/test";
-import { appSessionCookie, auth, sessionFile, stateFile } from "./support";
+import { SESSION_COOKIE } from "../src/shared/supabase-settings";
+import { auth, sessionFile, stateFile } from "./support";
 
 // Ends the session once the checks are done, so no sign-in outlives its run.
 teardown("sign the test account out", async () => {
@@ -18,7 +19,7 @@ teardown("sign the test account out", async () => {
   if (state) {
     const parsed = JSON.parse(state);
     parsed.cookies = parsed.cookies.filter(
-      ({ name }: { name: string }) => !appSessionCookie.test(name),
+      ({ name }: { name: string }) => !SESSION_COOKIE.test(name),
     );
     await writeFile(stateFile, JSON.stringify(parsed), { mode: 0o600 });
   }

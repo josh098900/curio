@@ -7,8 +7,6 @@ export const testAccount = "preview-checks@example.com";
 
 /** The browser checks' starting cookies: Vercel's bypass cookie and the app's session cookie. */
 export const stateFile = path.join(__dirname, ".auth", "state.json");
-/** The app's session cookie, whole or in chunks: sb-<project ref>-auth-token. */
-export const appSessionCookie = /^sb-[a-z0-9]+-auth-token(\.\d+)?$/;
 /** The test account's session, kept for signing out. */
 export const sessionFile = path.join(__dirname, ".auth", "session.json");
 

@@ -1,0 +1,167 @@
+/*
+  Curio's theme tokens, copied from docs/design/wireframes/tokens.css (rebuilt from the
+  wireframes on 3 November 2026 and checked against spec §16), because docs/ isn't in git.
+  The names match the wireframes', so var(--text2) there means the same here. Components use
+  these roles, never literal colours, so the day and night themes can't drift apart.
+
+  The theme follows the device's setting (FR-ACC-08, D29) through prefers-color-scheme, so it's
+  right from the first paint, with no script and nothing stored. The choice in Settings comes
+  in T61. The wireframes' map colours are left out: the app uses Mapbox's own styles (T31).
+*/
+
+/* ---------- Day theme (light): cobalt and sun on paper ---------- */
+:root {
+  --bg: #f7f6f2; /* background, "paper" */
+  --surface: #ffffff; /* raised surface */
+  --text: #0e1222;
+  --text2: #5b6070; /* secondary text */
+  --accent: #2c47e0; /* cobalt: buttons, links, focus */
+  --on-accent: #ffffff;
+  --hi: #ffd84d; /* sun: "Tonight", live. A fill only, never text or a button on paper */
+  --on-hi: #0e1222;
+  --tint: #e4e8fc; /* tinted background: selected, verified */
+  --on-tint: #2c47e0;
+  --card: #2c47e0; /* feed card */
+  --card-line: #2c47e0;
+  --card-text: #ffffff;
+  --card-text2: #dce2ff;
+  --card-hi: #ffd84d; /* time, badges and chip text on the card */
+  --join: #ffd84d; /* the sun Join button on the card */
+  --on-join: #0e1222;
+  --card-chip: #0e1222;
+  --card-chip-text: #ffd84d;
+  --card-glyph: rgba(255, 255, 255, 0.13);
+  --card-btn-line: #dce2ff;
+  --rail-bg: rgba(14, 18, 34, 0.28);
+  --av-bg: #e4e8fc; /* avatar initials */
+  --av-text: #2c47e0;
+  --card-av-bg: #dce2ff;
+  --card-av-text: #2c47e0;
+  --err: #c0281f; /* error, destructive */
+  --on-err: #ffffff;
+  --warn: #8a5a00;
+  --input: #80859a; /* input border */
+  --div: #e6e4dd; /* divider */
+  --toast: #0e1222;
+  --on-toast: #f7f6f2;
+  --scrim: rgba(14, 18, 34, 0.52);
+  --skel: #e6e4dd; /* loading skeleton */
+  --area: rgba(44, 71, 224, 0.16); /* an approximate area drawn on the map */
+}
+
+/* ---------- Night theme (dark): lime on ink ---------- */
+/* Cobalt never appears at night. Lime is both the accent and the highlight, so status chips
+   also carry an icon and a word. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214; /* background, "ink" */
+    --surface: #1c1d21;
+    --text: #f7f6f2;
+    --text2: #9c9ca3;
+    --accent: #c8f031; /* lime: buttons, links, focus */
+    --on-accent: #111214;
+    --hi: #c8f031;
+    --on-hi: #111214;
+    --tint: #4a6000; /* olive, with lime text */
+    --on-tint: #c8f031;
+    --card: #17181b;
+    --card-line: #2a2c31;
+    --card-text: #f7f6f2;
+    --card-text2: #9c9ca3;
+    --card-hi: #c8f031;
+    --join: #c8f031; /* the lime Join button on the card */
+    --on-join: #111214;
+    --card-chip: #2a2c31;
+    --card-chip-text: #c8f031;
+    --card-glyph: rgba(247, 246, 242, 0.06);
+    --card-btn-line: #6e7077;
+    --rail-bg: rgba(247, 246, 242, 0.08);
+    --av-bg: #4a6000;
+    --av-text: #c8f031;
+    --card-av-bg: #2a2c31;
+    --card-av-text: #f7f6f2;
+    --err: #ff6b5e;
+    --on-err: #111214;
+    --warn: #ffb547;
+    --input: #6e7077;
+    --div: #2a2c31;
+    --toast: #f7f6f2;
+    --on-toast: #111214;
+    --scrim: rgba(0, 0, 0, 0.62);
+    --skel: #2a2c31;
+    --area: rgba(200, 240, 49, 0.16);
+  }
+}
+
+/* ---------- Type, spacing and shape (the same in both themes) ---------- */
+:root {
+  /* IBM Plex Sans and IBM Plex Sans Condensed, weights 400, 500 and 600.
+     Condensed is for times and counts. Sentence case everywhere. */
+  --font-sans:
+    var(--font-plex-sans), "IBM Plex Sans", system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-cond:
+    var(--font-plex-cond), "IBM Plex Sans Condensed", "IBM Plex Sans",
+    system-ui, sans-serif;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Type scale, as size and line height. */
+  --text-12: 12px;
+  --leading-12: 16px; /* 500: tab and rail labels only */
+  --text-14: 14px;
+  --leading-14: 20px; /* 500: secondary lines, chips, hints */
+  --text-16: 16px;
+  --leading-16: 24px; /* 400: body, the minimum for reading */
+  --text-18: 18px;
+  --leading-18: 26px; /* 600: top bar titles */
+  --text-22: 22px;
+  --leading-22: 28px; /* Condensed 600: section headers, counts */
+  --text-28: 28px;
+  --leading-28: 34px; /* 600: card and page titles */
+  --text-36: 36px;
+  --leading-36: 40px; /* Condensed 500: the time on feed cards */
+
+  /* Spacing: the steps the wireframes use. */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px; /* the page gutter on phones */
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px; /* the page gutter on desktop */
+  --space-48: 48px;
+
+  /* Shape. */
+  --radius-pill: 999px; /* chips, age bands, the Feed/Map/List switch, tab pills, avatars */
+  --radius-control: 12px; /* buttons, icon buttons, banners, panels, feed cards, toasts */
+  --radius-control-sm: 10px; /* small buttons */
+  --radius-input: 8px; /* text fields */
+  --radius-bubble: 16px; /* chat bubbles, with a 4px corner on the sender's side */
+  --radius-bubble-tail: 4px;
+  --radius-sheet: 20px; /* bottom sheets (top corners) and dialogs */
+
+  /* Sizes. Every target is at least 24 by 24 px (WCAG 2.2); most are 44 or more. */
+  --control-height: 48px; /* buttons, text fields, radio rows */
+  --control-height-lg: 52px; /* large buttons, Join on the feed card */
+  --control-height-sm: 36px;
+  --icon-button: 44px;
+  --segment-height: 40px; /* each option in the Feed/Map/List switch */
+  --chip-height: 28px;
+  --chip-pick-height: 40px; /* chips used as choices, as in Filters */
+  --top-bar-height: 56px;
+  --desktop-top-bar-height: 64px;
+  --tab-bar-height: 72px;
+
+  /* Focus: a 2 px accent ring with a 2 px gap. */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Elevation. */
+  --shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.2);
+  --shadow-dialog: 0 12px 40px rgba(0, 0, 0, 0.28);
+  --shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.24);
+}

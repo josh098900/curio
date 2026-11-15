@@ -18,7 +18,8 @@ import {
   signedIn,
   useSupabaseSettings,
 } from "../../test/fake-supabase";
-import { action, noInput, SIGN_IN_PATH } from "./action";
+import { action, noInput } from "./action";
+import { SIGN_IN_PATH } from "@/shared/navigation";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 

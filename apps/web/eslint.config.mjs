@@ -126,7 +126,18 @@ const useServerInFunctions = {
   selector: ":function ExpressionStatement[expression.value='use server']",
   message: useServerMessage,
 };
-const restrictedInTests = [...rawHtmlSelectors, ...getSessionSelectors];
+// The CSP runs styles only with its nonce, so a style attribute in server-rendered HTML is
+// refused (T14). Style with a CSS Module class instead.
+const inlineStyle = {
+  selector: "JSXAttribute[name.name='style']",
+  message:
+    "Use a CSS Module class: the CSP refuses inline styles in server-rendered HTML (WEB-ACT-12).",
+};
+const restrictedInTests = [
+  ...rawHtmlSelectors,
+  ...getSessionSelectors,
+  inlineStyle,
+];
 const restrictedEverywhere = [...restrictedInTests, ...testSupportSelectors];
 
 const eslintConfig = defineConfig([

@@ -1,0 +1,10 @@
+/* A page without the shell. */
+.main {
+  padding: var(--space-16);
+}
+
+@media (min-width: 900px) {
+  .main {
+    padding: var(--space-32);
+  }
+}

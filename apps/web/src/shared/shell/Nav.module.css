@@ -1,0 +1,110 @@
+/* Phones use the bottom tab bar, desktop the top bar; only one is ever shown. */
+.top {
+  display: none;
+}
+
+.bottom {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-top: 1px solid var(--div);
+}
+
+@media (min-width: 900px) {
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    gap: var(--space-32);
+    align-items: center;
+    height: var(--desktop-top-bar-height);
+    padding: 0 var(--space-32);
+    background: var(--surface);
+    border-bottom: 1px solid var(--div);
+  }
+
+  .bottom {
+    display: none;
+  }
+}
+
+.topList,
+.bottomList {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.topList {
+  gap: var(--space-8);
+}
+
+.bottomList {
+  height: var(--tab-bar-height);
+}
+
+.bottomList li {
+  flex: 1;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  color: var(--text2);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.topList .link {
+  min-height: 44px;
+  padding: 0 var(--space-16);
+  border-radius: var(--radius-pill);
+}
+
+.bottomList .link {
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-4);
+  height: 100%;
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+
+/* The current tab: tinted, and named "current page" to screen readers, not by colour alone. */
+.link[aria-current="page"] {
+  color: var(--on-tint);
+  font-weight: var(--weight-semibold);
+}
+
+.topList .link[aria-current="page"] {
+  background: var(--tint);
+}
+
+/* S00's 56 by 30 pill behind the current tab's icon. */
+.bottomList .link[aria-current="page"] .icon {
+  box-sizing: content-box;
+  padding: var(--space-4) 17px;
+  border-radius: var(--radius-pill);
+  background: var(--tint);
+}
+
+.bell {
+  display: grid;
+  place-items: center;
+  width: var(--icon-button);
+  height: var(--icon-button);
+  margin-left: auto;
+  border-radius: var(--radius-control);
+  color: var(--text);
+}

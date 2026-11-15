@@ -6,12 +6,10 @@ import {
   type FieldRule,
 } from "@curio/contracts";
 import { redirect, unstable_rethrow } from "next/navigation";
+import { SIGN_IN_PATH } from "@/shared/navigation";
 import { BackendFailure, oneCallBackend, type Backend } from "./backend";
 import { checkSession, type SessionUser } from "./session";
 import { createSupabase } from "./supabase";
-
-/** Where a signed-out caller is sent. T17 builds the page (S02). */
-export const SIGN_IN_PATH = "/sign-in";
 
 export type ActionFailure = {
   ok: false;

@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@curio/contracts"],
   // next dev would otherwise write an AGENTS.md into the app.
   agentRules: false,
+  // No "X-Powered-By: Next.js" (ZAP's low alert 10037, T14).
+  poweredByHeader: false,
   // The fixed security headers on every path, static files included; src/proxy.ts adds the CSP to
   // pages (src/shared/security-headers.ts, WEB-ACT-12).
   async headers() {

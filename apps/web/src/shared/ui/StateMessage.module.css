@@ -1,0 +1,47 @@
+.message {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-12);
+  max-width: 360px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-pill);
+}
+
+.icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.tinted {
+  background: var(--tint);
+  color: var(--on-tint);
+}
+
+.error {
+  border: 2px solid var(--err);
+  color: var(--err);
+}
+
+.title {
+  font-size: var(--text-28);
+  line-height: var(--leading-28);
+  font-weight: var(--weight-semibold);
+}
+
+.text {
+  color: var(--text2);
+  margin-bottom: var(--space-12);
+}
+
+/* S53, S54 and S56 use the large button. */
+.message > :is(a, button) {
+  min-height: var(--control-height-lg);
+}

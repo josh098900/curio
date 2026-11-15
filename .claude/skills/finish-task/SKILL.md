@@ -40,7 +40,7 @@ The plan says a task is ticked only when its tests pass in CI. Once CI exists (T
 
 ## 4. Reviews
 
-If the change touches `supabase/`, `packages/contracts`, or anything the data dictionary or spec §11 describes, run the `spec-reviewer` agent on it. If it touches sign-in, sessions, access rules, database or Edge Functions, secrets, headers, uploads, redirects or personal data, run the `security-reviewer` agent as well. Fix blocking findings first, or list them for the user. Don't tick while a blocking finding is open.
+If the change touches `supabase/`, `packages/contracts`, or anything the data dictionary or spec §11 describes, run the `spec-reviewer` agent on it. If it touches sign-in, sessions, access rules, database or Edge Functions, secrets, headers, uploads, redirects or personal data, run the `security-reviewer` agent as well. Run the `bloat-reviewer` agent on every change, and remove what it finds unneeded unless the user prefers to keep it. Fix blocking findings first, or list them for the user. Don't tick while a blocking finding is open.
 
 ## 5. Tick and log
 

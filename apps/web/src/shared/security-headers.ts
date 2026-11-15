@@ -101,7 +101,8 @@ export function contentSecurityPolicy(
  * The headers every response carries, pages and static files alike (§13.5 A02 and A04, NFR-SEC-06):
  * HTTPS only for two years; no guessing content types; only the origin sent to other sites, which
  * Mapbox's URL-restricted token needs (§13.3); never framed, for older browsers that ignore
- * frame-ancestors; and the camera only for Stripe's ID check, the location only for Curio itself
+ * frame-ancestors; no handle on Curio's window for a site that opens it; and the camera only for
+ * Stripe's ID check, the location only for Curio itself
  * (S15's "Use my location"), and the rest off.
  */
 export const FIXED_HEADERS: readonly { key: string; value: string }[] = [
@@ -112,6 +113,9 @@ export const FIXED_HEADERS: readonly { key: string; value: string }[] = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Frame-Options", value: "DENY" },
+  // Another site that opens Curio in a pop-up gets no handle on it, so it can't count the page's
+  // frames to learn whether this browser has used Curio (T15's security review).
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   {
     key: "Permissions-Policy",
     value: `camera=("${STRIPE_JS}"), microphone=(), geolocation=(self), payment=(), usb=(), browsing-topics=()`,

@@ -1,0 +1,23 @@
+/* Room below for the tab bar on phones; a centred column up to 1200 px on desktop (brief §4). */
+.main {
+  padding: var(--space-16) var(--space-16)
+    calc(var(--tab-bar-height) + var(--space-16));
+}
+
+.notice:has(> *) {
+  padding: var(--space-16) var(--space-16) 0;
+}
+
+@media (min-width: 900px) {
+  .main {
+    max-width: calc(1200px + 2 * var(--space-32));
+    margin: 0 auto;
+    padding: var(--space-32);
+  }
+
+  .notice:has(> *) {
+    max-width: calc(1200px + 2 * var(--space-32));
+    margin: 0 auto;
+    padding: var(--space-16) var(--space-32) 0;
+  }
+}

@@ -1,0 +1,46 @@
+.page {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: calc(100dvh - 2 * var(--space-16));
+}
+
+/* In the shell, the page sits above the tab bar on phones and below the top bar on desktop. */
+:global([data-shell]) .page {
+  min-height: calc(100dvh - var(--tab-bar-height) - 2 * var(--space-16));
+}
+
+@media (min-width: 900px) {
+  .page {
+    min-height: calc(100dvh - 2 * var(--space-32));
+  }
+
+  :global([data-shell]) .page {
+    min-height: calc(
+      100dvh - var(--desktop-top-bar-height) - 2 * var(--space-32)
+    );
+  }
+
+  :global([data-shell]) .header {
+    display: none;
+  }
+}
+
+.body {
+  display: grid;
+  align-content: center;
+  padding: var(--space-32) 0;
+}
+
+.footer {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-16);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+}
+
+.footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}

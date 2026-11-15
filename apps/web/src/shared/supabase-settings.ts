@@ -12,15 +12,6 @@ export function supabaseSettings(): SupabaseSettings | null {
   return { url, publishableKey };
 }
 
-/**
- * The session cookie (spec §13.2, decided on 15 November):
- * - HttpOnly, so page scripts can't read the session and a script injected into a page can't
- *   take the refresh token with it;
- * - Secure, except for the local stack: plain HTTP on a loopback address, whose cookie never
- *   leaves the machine. Anything else, a hosted project or an address that won't parse, gets it;
- * - SameSite=Lax, so a link from another site still arrives signed in, while another site's
- *   form posts don't carry it.
- */
 /** How long the web server waits for Supabase: Auth, the Data API or an Edge Function (spec §14.4). */
 export const SUPABASE_TIMEOUT_MS = 15_000;
 
@@ -87,6 +78,18 @@ export function isLocalStack(supabaseUrl: string): boolean {
   }
 }
 
+/** The session cookie's name, whole or in chunks, as @supabase/ssr writes it: sb-<ref>-auth-token. */
+export const SESSION_COOKIE = /^sb-[a-z0-9]+-auth-token(\.\d+)?$/;
+
+/**
+ * The session cookie (spec §13.2, decided on 15 November):
+ * - HttpOnly, so page scripts can't read the session and a script injected into a page can't
+ *   take the refresh token with it;
+ * - Secure, except for the local stack: plain HTTP on a loopback address, whose cookie never
+ *   leaves the machine. Anything else, a hosted project or an address that won't parse, gets it;
+ * - SameSite=Lax, so a link from another site still arrives signed in, while another site's
+ *   form posts don't carry it.
+ */
 export function sessionCookieOptions(supabaseUrl: string) {
   return {
     httpOnly: true,

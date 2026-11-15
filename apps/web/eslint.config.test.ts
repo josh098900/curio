@@ -272,6 +272,30 @@ describe("UT-VAL-13 HTML or a script tag in any text field", () => {
   });
 });
 
+describe("no inline styles, which the CSP refuses", () => {
+  it.each([
+    [
+      "src/app/page.tsx",
+      'export default function Page() { return <p style={{ color: "red" }}>x</p>; }\n',
+    ],
+    [
+      "src/shared/ui/Box.test.tsx",
+      "export const Box = () => <div style={{ padding: 4 }} />;\n",
+    ],
+  ])("refused in %s", async (filePath, code) => {
+    expect(await rulesBroken(code, filePath)).toContain("no-restricted-syntax");
+  });
+
+  it("a class is fine", async () => {
+    expect(
+      await rulesBroken(
+        'export const Box = () => <div className="box" />;\n',
+        "src/shared/ui/Box.tsx",
+      ),
+    ).not.toContain("no-restricted-syntax");
+  });
+});
+
 describe("the shared fakes in test/ are for tests alone", () => {
   const code =
     'import { signedIn } from "../../test/fake-supabase";\nexport const s = signedIn;\n';
