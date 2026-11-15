@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { appSessionCookie } from "./support";
 
 // The key pages, each checked by axe in both themes. Each joins as it's built, Discover first
 // once it exists (T31).
@@ -16,6 +17,26 @@ test("the health route reaches staging's database", async ({ page }) => {
   const response = await page.goto("/api/health");
   expect(response?.status()).toBe(200);
   expect(await response?.json()).toEqual({ status: "ok" });
+});
+
+// The sign-in step's session cookie reaches the preview alone, and page scripts can't read it
+// (T13). The values aren't compared, so a failure can't print them. T15's app shell, the first
+// page that shows who's signed in, checks the app reads it.
+test("the browser holds the app's session cookie, for the preview alone", async ({
+  context,
+  baseURL,
+}) => {
+  const session = (await context.cookies()).filter(({ name }) =>
+    appSessionCookie.test(name),
+  );
+  expect(session.length).toBeGreaterThan(0);
+  for (const { domain, httpOnly, secure, sameSite } of session)
+    expect({ domain, httpOnly, secure, sameSite }).toEqual({
+      domain: new URL(baseURL!).hostname,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+    });
 });
 
 // Vercel's toolbar is its own script, not Curio's, and would skew axe, Lighthouse and ZAP.

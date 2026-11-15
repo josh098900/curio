@@ -128,6 +128,14 @@ jobs:
           SUPABASE_CI_KEY: ${{ secrets.STAGING_CI_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: pnpm --filter web test:preview --project sign-in --no-deps
+      # The app's own session cookie, made by @supabase/ssr in a step of its own, which gets
+      # neither staging's ci_preview key nor the bypass secret (T13).
+      - name: Give the browser the app's session cookie
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+        run: pnpm --filter web test:preview --project app-cookie --no-deps
       - name: Smoke tests and axe
         env:
           PREVIEW_URL: ${{ needs.preview.outputs.url }}
@@ -169,6 +177,14 @@ jobs:
           SUPABASE_CI_KEY: ${{ secrets.STAGING_CI_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: pnpm --filter web test:preview --project sign-in --no-deps
+      # The app's own session cookie, made by @supabase/ssr in a step of its own, which gets
+      # neither staging's ci_preview key nor the bypass secret (T13).
+      - name: Give the browser the app's session cookie
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+        run: pnpm --filter web test:preview --project app-cookie --no-deps
       - name: Lighthouse budgets
         env:
           PREVIEW_URL: ${{ needs.preview.outputs.url }}
@@ -189,9 +205,38 @@ jobs:
       name: staging
       deployment: false
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      # The sign-in makes no browser requests, so no browser is installed.
+      - name: Sign in as the staging test account
+        id: signin
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_CI_KEY: ${{ secrets.STAGING_CI_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: pnpm --filter web test:preview --project sign-in --no-deps
+      # The app's own session cookie, made by @supabase/ssr in a step of its own, which gets
+      # neither staging's ci_preview key nor the bypass secret (T13).
+      - name: Give the browser the app's session cookie
+        env:
+          PREVIEW_URL: ${{ needs.preview.outputs.url }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+        run: pnpm --filter web test:preview --project app-cookie --no-deps
       # A passive scan, which reports every alert. Alerts at FAIL_AT_RISK or above fail the check:
       # 3 is high. T14 adds the security headers and lowers it to 2, medium (NF-SEC-01). ZAP sends
-      # the bypass secret only to the preview's host, and its report stays on the runner.
+      # the bypass secret and the session cookie only to the preview's host, and its report stays
+      # on the runner.
       # The image is pinned, but ZAP updates its add-ons as it starts, which keeps its rules
       # current. Dependabot can't see an image named in a script, so update the pin by hand.
       - name: Scan the preview
@@ -211,10 +256,45 @@ jobs:
             exit 1
           fi
           mkdir -m 777 zap
+          # ZAP scans signed in, with the app's session cookie from the sign-in step (T13). ZAP's
+          # own header setting carries only the bypass header, so the cookie goes through a
+          # replacer rule, which matches the preview's whole address and nothing else. The rule is
+          # read from a file in ZAP's working folder rather than the command line, each cookie
+          # value is masked in the log, and the file is deleted once the scan ends. ZAP matches the
+          # whole address against the pattern; the anchors make that plain. Java reads the file as
+          # properties, so the pattern uses [.] rather than a backslash.
+          state=apps/web/preview/.auth/state.json
+          session='[.cookies[] | select(.name | test("^sb-[a-z]{20}-auth-token([.][0-9]+)?$"))]'
+          while IFS= read -r value; do
+            echo "::add-mask::$value"
+          done < <(jq -r "$session | .[].value" "$state")
+          cookie=$(jq -r "$session | map(\"\\(.name)=\\(.value)\") | join(\"; \")" "$state")
+          if [ -z "$cookie" ]; then
+            echo "::error::The sign-in step left no session cookie."
+            exit 1
+          fi
+          host_pattern=${ZAP_AUTH_HEADER_SITE//./[.]}
+          (
+            umask 022
+            {
+              echo "replacer.full_list(0).description=The app's session"
+              echo "replacer.full_list(0).enabled=true"
+              echo "replacer.full_list(0).url=^https://${host_pattern}([/?#].*)?$"
+              echo "replacer.full_list(0).matchtype=REQ_HEADER"
+              echo "replacer.full_list(0).matchstr=Cookie"
+              echo "replacer.full_list(0).regex=false"
+              echo "replacer.full_list(0).replacement=$cookie"
+              # Signed in, the spider would otherwise submit the app's forms as the test account.
+              echo "spider.processform=false"
+              echo "spider.postform=false"
+            } > zap/session.conf
+          )
+          unset cookie
           status=0
           docker run --rm -v "$PWD/zap:/zap/wrk:rw" -e ZAP_AUTH_HEADER -e ZAP_AUTH_HEADER_VALUE -e ZAP_AUTH_HEADER_SITE \
             ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
-            zap-baseline.py -t "$PREVIEW_URL" -J report.json -I || status=$?
+            zap-baseline.py -t "$PREVIEW_URL" -J report.json -I -z "-configfile /zap/wrk/session.conf" || status=$?
+          rm -f zap/session.conf
           if [ ! -s zap/report.json ]; then
             echo "::error::ZAP didn't finish the scan (exit code $status)."
             exit 1
@@ -243,3 +323,9 @@ jobs:
             exit 1
           fi
           echo "ZAP raised no alert at risk $FAIL_AT_RISK or above."
+      - name: Sign out
+        if: ${{ always() && steps.signin.outcome != 'skipped' }}
+        env:
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+        run: pnpm --filter web test:preview --project sign-out --no-deps

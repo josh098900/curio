@@ -5,7 +5,12 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": path.resolve(import.meta.dirname, "src") },
+    alias: {
+      "@": path.resolve(import.meta.dirname, "src"),
+      // T03's lint rule starts every file in src/server with import "server-only", which throws
+      // outside React Server Components.
+      "server-only": path.resolve(import.meta.dirname, "test/server-only.ts"),
+    },
   },
   test: {
     environment: "jsdom",

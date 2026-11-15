@@ -5,9 +5,11 @@ import path from "node:path";
 /** The staging test account. It exists only on staging, with no password (spec §14.2). */
 export const testAccount = "preview-checks@example.com";
 
-/** Vercel's bypass cookie, which the browser checks start with. */
+/** The browser checks' starting cookies: Vercel's bypass cookie and the app's session cookie. */
 export const stateFile = path.join(__dirname, ".auth", "state.json");
-/** The test account's session, kept for signing out (and, from T13, for the app's cookie). */
+/** The app's session cookie, whole or in chunks: sb-<project ref>-auth-token. */
+export const appSessionCookie = /^sb-[a-z0-9]+-auth-token(\.\d+)?$/;
+/** The test account's session, kept for signing out. */
 export const sessionFile = path.join(__dirname, ".auth", "session.json");
 
 export function env(name: string): string {
@@ -42,14 +44,19 @@ type AuthCall = {
   method?: "GET" | "POST";
 };
 
+/** Staging's address, checked to be a Supabase project's before anything is sent to it. */
+export function supabaseUrl(): string {
+  const url = env("SUPABASE_URL");
+  if (!supabaseAddress.test(url))
+    throw new Error("SUPABASE_URL isn't a Supabase project's address.");
+  return url;
+}
+
 export function auth(
   route: string,
   { body, token, secret, method = "POST" }: AuthCall = {},
 ) {
-  const url = env("SUPABASE_URL");
-  if (!supabaseAddress.test(url))
-    throw new Error("SUPABASE_URL isn't a Supabase project's address.");
-  return fetch(`${url}/auth/v1${route}`, {
+  return fetch(`${supabaseUrl()}/auth/v1${route}`, {
     method,
     headers: {
       apikey: env(secret ? "SUPABASE_CI_KEY" : "SUPABASE_PUBLISHABLE_KEY"),
