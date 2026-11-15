@@ -1,6 +1,7 @@
 // @vitest-environment node
 // WEB-ACT-11: proxy.ts refreshes the session cookie, never allows or blocks a page by itself,
-// and skips static files (proxy-matcher.test.ts).
+// and skips static files (proxy-matcher.test.ts). WEB-ACT-12: it gives every page a CSP with a new
+// nonce, which the page sees too.
 import { NextRequest, type NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -75,9 +76,12 @@ describe("WEB-ACT-11 proxy.ts", () => {
       sameSite: "lax",
       path: "/",
     });
-    // The page about to render sees the new session too.
+    // The page about to render sees the new session too, in the request headers Next passes on.
+    const forwarded = new NextRequest("https://curio.example/", {
+      headers: { cookie: response.headers.get("x-middleware-request-cookie")! },
+    });
     expect(
-      decodeSession(request.cookies.get(COOKIE_NAME)!.value).access_token,
+      decodeSession(forwarded.cookies.get(COOKIE_NAME)!.value).access_token,
     ).toBe(fresh);
     // So no CDN keeps one person's session for another.
     expect(response.headers.get("cache-control")).toContain("no-store");
@@ -147,7 +151,7 @@ describe("WEB-ACT-11 proxy.ts", () => {
     expectPassedOn(response!);
   });
 
-  it("WEB-ACT-11 passes requests on untouched without the Supabase settings, or with ones that won't work", async () => {
+  it("WEB-ACT-11 passes requests on without the Supabase settings, or with ones that won't work", async () => {
     vi.unstubAllEnvs();
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     expectPassedOn(await proxy(requestWith()));
@@ -156,5 +160,96 @@ describe("WEB-ACT-11 proxy.ts", () => {
     useSupabaseSettings();
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "not-a-url");
     expectPassedOn(await proxy(requestWith(session.cookie)));
+  });
+});
+
+describe("WEB-ACT-12 proxy.ts's Content Security Policy", () => {
+  beforeEach(() => {
+    pinTheClock();
+    useSupabaseSettings();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  function nonceOf(policy: string | null) {
+    return /'nonce-([^']+)'/.exec(policy ?? "")?.[1];
+  }
+
+  it("WEB-ACT-12 every page gets a CSP with a new nonce, which the page sees too, so Next can stamp it", async () => {
+    fakeNetwork();
+    const first = await proxy(requestWith());
+    const second = await proxy(requestWith());
+    const policy = first.headers.get("content-security-policy");
+    expect(nonceOf(policy)).toBeTruthy();
+    expect(nonceOf(second.headers.get("content-security-policy"))).not.toBe(
+      nonceOf(policy),
+    );
+    // Next reads the nonce from the CSP on the request, and pages can read it as x-nonce.
+    expect(
+      first.headers.get("x-middleware-request-content-security-policy"),
+    ).toBe(policy);
+    expect(first.headers.get("x-middleware-request-x-nonce")).toBe(
+      nonceOf(policy),
+    );
+    expectPassedOn(first);
+  });
+
+  it("WEB-ACT-12 a client's own CSP or nonce headers never reach the page", async () => {
+    fakeNetwork();
+    const response = await proxy(
+      new NextRequest("https://curio.example/plans", {
+        headers: {
+          "content-security-policy": "script-src 'nonce-attacker'",
+          "content-security-policy-report-only": "script-src 'nonce-attacker'",
+          "x-nonce": "attacker",
+        },
+      }),
+    );
+    const policy = response.headers.get("content-security-policy");
+    expect(
+      response.headers.get("x-middleware-request-content-security-policy"),
+    ).toBe(policy);
+    expect(response.headers.get("x-middleware-request-x-nonce")).toBe(
+      nonceOf(policy),
+    );
+    expect(nonceOf(policy)).not.toBe("attacker");
+    expect(
+      response.headers.has(
+        "x-middleware-request-content-security-policy-report-only",
+      ),
+    ).toBe(false);
+    // Next passes the page only the headers this list names, so the report-only one is dropped.
+    expect(
+      response.headers.get("x-middleware-override-headers")!.split(","),
+    ).not.toContain("content-security-policy-report-only");
+  });
+
+  it("WEB-ACT-12 the CSP is there whatever happens to the session", async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    expect(
+      nonceOf(
+        (await proxy(requestWith())).headers.get("content-security-policy"),
+      ),
+    ).toBeTruthy();
+
+    useSupabaseSettings();
+    const session = await signedIn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    );
+    expect(
+      nonceOf(
+        (await proxy(requestWith(session.cookie))).headers.get(
+          "content-security-policy",
+        ),
+      ),
+    ).toBeTruthy();
   });
 });

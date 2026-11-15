@@ -1,5 +1,10 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  contentSecurityPolicy,
+  cspSettings,
+  newNonce,
+} from "@/shared/security-headers";
 import {
   sessionCookieOptions,
   supabaseFetch,
@@ -8,19 +13,51 @@ import {
 } from "@/shared/supabase-settings";
 
 /**
- * Refreshes the session cookie, and nothing else (spec §13.2, WEB-ACT-11). It never allows,
- * redirects or blocks a request: CVE-2025-29927 showed a proxy can be skipped entirely, so every
- * page, server action and route handler checks the user itself. Server components can't write
- * cookies, so this is where an expiring session is refreshed before a page renders.
+ * Refreshes the session cookie and sets the Content Security Policy, and nothing else (spec §13.2,
+ * WEB-ACT-11 and WEB-ACT-12). It never allows, redirects or blocks a request: CVE-2025-29927
+ * showed a proxy can be skipped entirely, so every page, server action and route handler checks
+ * the user itself. Server components can't write cookies, so this is where an expiring session is
+ * refreshed before a page renders. The CSP's nonce must be new for each request, and Next stamps it
+ * on a page's own scripts and styles when it finds the CSP on the request, so it's made here too.
  */
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
-  const settings = supabaseSettings();
-  if (!settings) return response;
+  const refreshed = await refreshSession(request);
+  const nonce = newNonce();
+  const policy = contentSecurityPolicy(nonce, cspSettings());
 
-  // Refreshes an expiring session. The answer isn't used, and a failure, even settings that won't
-  // make a client, changes nothing: who's signed in is decided by the page or action that runs
-  // next.
+  // The page about to render sees the refreshed cookies, the CSP whose nonce Next stamps on its
+  // scripts and styles, and the nonce itself, for scripts a page adds (Turnstile, Stripe.js).
+  // set() replaces anything the client sent under these names.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("content-security-policy", policy);
+  requestHeaders.delete("content-security-policy-report-only");
+  requestHeaders.set("x-nonce", nonce);
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+
+  // The browser gets the refreshed cookies, with the headers that stop a CDN caching the session,
+  // and the CSP.
+  for (const { name, value, options } of refreshed.cookies)
+    response.cookies.set(name, value, options);
+  for (const [header, value] of Object.entries(refreshed.headers))
+    response.headers.set(header, value);
+  response.headers.set("content-security-policy", policy);
+  return response;
+}
+
+type Refreshed = {
+  cookies: { name: string; value: string; options: CookieOptions }[];
+  headers: Record<string, string>;
+};
+
+/**
+ * Refreshes an expiring session, writing the new cookies into the request for the page. The answer
+ * isn't used, and a failure, even settings that won't make a client, changes nothing: who's signed
+ * in is decided by the page or action that runs next.
+ */
+async function refreshSession(request: NextRequest): Promise<Refreshed> {
+  const refreshed: Refreshed = { cookies: [], headers: {} };
+  const settings = supabaseSettings();
+  if (!settings) return refreshed;
   try {
     const supabase = createServerClient(settings.url, settings.publishableKey, {
       cookieOptions: sessionCookieOptions(settings.url),
@@ -28,28 +65,23 @@ export async function proxy(request: NextRequest) {
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll(cookiesToSet, headers) {
-          // The page about to render reads the refreshed cookies from the request, and the
-          // browser gets them on the response, with the headers that stop a CDN caching the
-          // session.
           for (const { name, value } of cookiesToSet)
             request.cookies.set(name, value);
-          response = NextResponse.next({ request });
-          for (const { name, value, options } of cookiesToSet)
-            response.cookies.set(name, value, options);
-          for (const [header, value] of Object.entries(headers))
-            response.headers.set(header, value);
+          refreshed.cookies.push(...cookiesToSet);
+          Object.assign(refreshed.headers, headers);
         },
       },
     });
     // A refresh and its retries get 15 seconds in all, then the page goes on (spec §14.4).
     await withinSupabaseTimeout(supabase.auth.getClaims());
   } catch {}
-  return response;
+  return refreshed;
 }
 
-// Static files skip the proxy: they carry no session.
+// Only Next's own static files and image route skip the proxy: they carry no session and need no
+// CSP, and next.config.ts gives them the fixed headers. Everything else runs it, files named like
+// images included, because a path the app doesn't know is answered with an HTML page, which needs
+// the CSP (T14's security review). A file added to public/ later is excluded by its exact name.
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|txt|xml|webmanifest)$).*)",
-  ],
+  matcher: ["/((?!_next/static/|_next/image$).*)"],
 };

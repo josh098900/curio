@@ -74,7 +74,8 @@ export async function withinSupabaseTimeout<T>(
   }
 }
 
-function isLocalStack(supabaseUrl: string): boolean {
+/** Whether this is the local stack: plain HTTP on a loopback address. */
+export function isLocalStack(supabaseUrl: string): boolean {
   try {
     const { protocol, hostname } = new URL(supabaseUrl);
     return (

@@ -234,7 +234,7 @@ jobs:
           SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
         run: pnpm --filter web test:preview --project app-cookie --no-deps
       # A passive scan, which reports every alert. Alerts at FAIL_AT_RISK or above fail the check:
-      # 3 is high. T14 adds the security headers and lowers it to 2, medium (NF-SEC-01). ZAP sends
+      # 2 is medium, now that T14's security headers are in place (NF-SEC-01). ZAP sends
       # the bypass secret and the session cookie only to the preview's host, and its report stays
       # on the runner.
       # The image is pinned, but ZAP updates its add-ons as it starts, which keeps its rules
@@ -242,7 +242,7 @@ jobs:
       - name: Scan the preview
         env:
           PREVIEW_URL: ${{ needs.preview.outputs.url }}
-          FAIL_AT_RISK: 3
+          FAIL_AT_RISK: 2
           ZAP_AUTH_HEADER: x-vercel-protection-bypass
           ZAP_AUTH_HEADER_VALUE: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
@@ -312,8 +312,15 @@ jobs:
             echo "| --- | --- | --- |"
             jq -r '.site[]?.alerts[]? | "| \(.riskdesc) | \(.alert) | \(.count) |"' zap/report.json
           } >> "$GITHUB_STEP_SUMMARY"
-          failing=$(jq --argjson at "$FAIL_AT_RISK" \
-            '[.site[]?.alerts[]? | select((.riskcode | tonumber) >= $at)] | length' zap/report.json)
+          # One alert is accepted, and only where every instance is a static file (decided on 15
+          # November, T14): Cross-Domain Misconfiguration [10098], for the Access-Control-Allow-Origin: *
+          # Vercel sends with /_next/static/, public files fetched without credentials. Anywhere else
+          # it fails the check like any other, as it does if the report doesn't list every instance.
+          failing=$(jq --argjson at "$FAIL_AT_RISK" --arg static "^https://${ZAP_AUTH_HEADER_SITE//./[.]}/_next/static/" \
+            '[.site[]?.alerts[]? | select((.riskcode | tonumber) >= $at)
+              | select(.pluginid != "10098"
+                  or ((.count | tonumber) != (.instances | length))
+                  or ([.instances[]?.uri | test($static)] | length == 0 or (all | not)))] | length' zap/report.json)
           if [ "$failing" -gt 0 ]; then
             echo "::error::ZAP raised $failing kinds of alert at risk $FAIL_AT_RISK or above. The run's summary lists them."
             exit 1
