@@ -152,6 +152,7 @@ describe("WEB-ACT-12 the fixed headers", () => {
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "strict-origin-when-cross-origin",
       "X-Frame-Options": "DENY",
+      "Cross-Origin-Opener-Policy": "same-origin",
       "Permissions-Policy":
         'camera=("https://js.stripe.com"), microphone=(), geolocation=(self), payment=(), usb=(), browsing-topics=()',
     });

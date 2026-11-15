@@ -1,0 +1,48 @@
+/* Above the tab bar on phones, bottom centre on desktop. */
+.region {
+  position: fixed;
+  inset-inline: var(--space-16);
+  bottom: calc(var(--tab-bar-height) + var(--space-16));
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+@media (min-width: 900px) {
+  .region {
+    bottom: var(--space-32);
+  }
+}
+
+.toast {
+  display: flex;
+  gap: var(--space-16);
+  align-items: center;
+  max-width: 480px;
+  padding: var(--space-8) var(--space-8) var(--space-8) var(--space-16);
+  border-radius: var(--radius-control);
+  background: var(--toast);
+  color: var(--on-toast);
+  box-shadow: var(--shadow-toast);
+  font-weight: var(--weight-medium);
+  pointer-events: auto;
+}
+
+.action {
+  min-height: 44px;
+  padding: 0 var(--space-12);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The accent ring is too faint on the toast in both themes (2.7:1 by day, 1.2:1 at night), so
+   its focus ring uses the toast's text colour (WCAG 1.4.11; differences.md row 19). */
+.toast :focus-visible {
+  outline-color: var(--on-toast);
+}

@@ -272,6 +272,51 @@ describe("UT-VAL-13 HTML or a script tag in any text field", () => {
   });
 });
 
+describe("every link is the shared Link, which never prefetches", () => {
+  const code =
+    'import Link from "next/link";\nexport const A = () => <Link href="/plans">Plans</Link>;\n';
+
+  it.each([
+    "src/app/page.tsx",
+    "src/features/demo/row.tsx",
+    "src/shared/shell/Nav.tsx",
+  ])("next/link is refused in %s", async (filePath) => {
+    expect(await rulesBroken(code, filePath)).toContain(
+      "no-restricted-imports",
+    );
+  });
+
+  it("the shared Link may use it", async () => {
+    expect(await rulesBroken(code, "src/shared/ui/Link.tsx")).not.toContain(
+      "no-restricted-imports",
+    );
+  });
+});
+
+describe("no inline styles, which the CSP refuses", () => {
+  it.each([
+    [
+      "src/app/page.tsx",
+      'export default function Page() { return <p style={{ color: "red" }}>x</p>; }\n',
+    ],
+    [
+      "src/shared/ui/Box.test.tsx",
+      "export const Box = () => <div style={{ padding: 4 }} />;\n",
+    ],
+  ])("refused in %s", async (filePath, code) => {
+    expect(await rulesBroken(code, filePath)).toContain("no-restricted-syntax");
+  });
+
+  it("a class is fine", async () => {
+    expect(
+      await rulesBroken(
+        'export const Box = () => <div className="box" />;\n',
+        "src/shared/ui/Box.tsx",
+      ),
+    ).not.toContain("no-restricted-syntax");
+  });
+});
+
 describe("the shared fakes in test/ are for tests alone", () => {
   const code =
     'import { signedIn } from "../../test/fake-supabase";\nexport const s = signedIn;\n';

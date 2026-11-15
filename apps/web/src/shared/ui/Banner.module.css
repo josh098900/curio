@@ -1,0 +1,47 @@
+.banner {
+  display: flex;
+  gap: var(--space-12);
+  align-items: flex-start;
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.banner strong {
+  font-weight: var(--weight-semibold);
+}
+
+.info {
+  border-color: transparent;
+  background: var(--tint);
+}
+
+.info .icon {
+  color: var(--on-tint);
+}
+
+.warning {
+  border-color: var(--warn);
+}
+
+.warning .icon {
+  color: var(--warn);
+}
+
+.error {
+  border-color: var(--err);
+}
+
+.error .icon {
+  color: var(--err);
+}

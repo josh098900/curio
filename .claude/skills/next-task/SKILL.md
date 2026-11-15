@@ -33,6 +33,6 @@ Give the user, briefly:
 4. **Steps,** in order, each small enough to check on its own.
 5. **What it must match:** the contract details, the order of checks, the error codes and the data dictionary rules, with the section for each.
 6. **Gaps and conflicts:** anything the spec doesn't cover, or where the spec, data dictionary and test specification disagree. These are questions for the user. Where only the wireframes or the brief differ from the spec, the spec wins: say what will be added to `docs/design/differences.md`.
-7. **Before finishing:** which reviewers to run (`spec-reviewer` for database, contract or Edge Function changes; `security-reviewer` for anything in spec §13's threat model), and what `/finish-task` will need to see.
+7. **Before finishing:** which reviewers to run (`spec-reviewer` for database, contract or Edge Function changes; `security-reviewer` for anything in spec §13's threat model; `bloat-reviewer` for every change), and what `/finish-task` will need to see.
 
 Then stop and wait for the user to approve or change the plan.

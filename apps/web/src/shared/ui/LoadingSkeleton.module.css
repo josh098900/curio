@@ -1,0 +1,22 @@
+.skeleton {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.row {
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-16);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.line {
+  height: var(--space-16);
+  border-radius: var(--radius-input);
+  background: var(--skel);
+}
+
+.short {
+  width: 60%;
+}

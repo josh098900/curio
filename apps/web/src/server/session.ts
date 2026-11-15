@@ -1,7 +1,15 @@
 import "server-only";
 import type { ErrorCode } from "@curio/contracts";
 import { isAuthRetryableFetchError } from "@supabase/supabase-js";
-import { TIMED_OUT, withinSupabaseTimeout } from "@/shared/supabase-settings";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { cache } from "react";
+import { safeNextPath, SIGN_IN_PATH } from "@/shared/navigation";
+import {
+  SESSION_COOKIE,
+  TIMED_OUT,
+  withinSupabaseTimeout,
+} from "@/shared/supabase-settings";
 import { createSupabase, type ServerSupabase } from "./supabase";
 
 /** The signed-in user, as the rest of the app sees them: their id and nothing else. */
@@ -54,11 +62,30 @@ export async function checkSession(
 
 /**
  * The signed-in user for a server component, or null when nobody is. Every page and data access
- * function asks again, since src/proxy.ts never decides who's signed in (WEB-ACT-11).
+ * function asks again, since src/proxy.ts never decides who's signed in (WEB-ACT-11). Asked once
+ * per request: the layout and the page share the answer.
  */
-export async function currentUser(): Promise<SessionUser | null> {
+export const currentUser = cache(async (): Promise<SessionUser | null> => {
   const session = await checkSession(await createSupabase());
   if ("unavailable" in session)
     throw new Error("UNAVAILABLE" satisfies ErrorCode);
   return "user" in session ? session.user : null;
+});
+
+/**
+ * AuthGuard (spec §11, shared foundation; open question 9): a page only signed-in people may see
+ * calls this with its own path. It returns the user, or sends the person away and never returns:
+ * to S56 "You've been signed out" if they came with a session that no longer works, and straight
+ * to sign-in if they came with none. Either way, `next` brings them back, if it's a path on
+ * Curio itself.
+ */
+export async function requireUser(path: string): Promise<SessionUser> {
+  const user = await currentUser();
+  if (user) return user;
+  const next = safeNextPath(path);
+  const query = next ? `?next=${encodeURIComponent(next)}` : "";
+  const hadSession = (await cookies())
+    .getAll()
+    .some(({ name }) => SESSION_COOKIE.test(name));
+  redirect(`${hadSession ? "/signed-out" : SIGN_IN_PATH}${query}`);
 }

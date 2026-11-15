@@ -1,0 +1,54 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: var(--control-height);
+  padding: 0 var(--space-20);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-semibold);
+}
+
+.secondary {
+  background: var(--surface);
+  border-color: var(--input);
+  color: var(--text);
+}
+
+.destructive {
+  background: transparent;
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.text {
+  min-height: 44px;
+  padding: 0 var(--space-8);
+  background: transparent;
+  color: var(--accent);
+}
+
+.wide {
+  width: 100%;
+}

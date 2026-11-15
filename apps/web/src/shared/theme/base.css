@@ -1,0 +1,89 @@
+/* The page itself: the theme's colours and type, the focus ring, and the room the sticky bars
+   take, so they never hide the focused element (WCAG 2.2, spec §14.8). */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: var(--space-16);
+  scroll-padding-bottom: calc(var(--tab-bar-height) + var(--space-16));
+}
+
+@media (min-width: 900px) {
+  html {
+    scroll-padding-top: calc(var(--desktop-top-bar-height) + var(--space-16));
+    scroll-padding-bottom: var(--space-16);
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-16);
+  line-height: var(--leading-16);
+  font-weight: var(--weight-regular);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Read by screen readers, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The first thing a keyboard reaches: straight past the navigation to the page. */
+.skip-link {
+  position: absolute;
+  top: var(--space-8);
+  left: var(--space-8);
+  z-index: 30;
+  padding: var(--space-12) var(--space-16);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-semibold);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}

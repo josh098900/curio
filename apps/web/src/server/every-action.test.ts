@@ -25,13 +25,8 @@ import {
   unsignedToken,
   useSupabaseSettings,
 } from "../../test/fake-supabase";
-import {
-  action,
-  isServerAction,
-  noInput,
-  SIGN_IN_PATH,
-  type ServerAction,
-} from "./action";
+import { action, isServerAction, noInput, type ServerAction } from "./action";
+import { SIGN_IN_PATH } from "@/shared/navigation";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 

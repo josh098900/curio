@@ -46,6 +46,11 @@ const dataAccessInternals = [
   "**/server/supabase",
   "**/server/backend",
 ];
+// Every link is the shared Link, which never prefetches (src/shared/ui/Link.tsx says why).
+const nextLinkImport = {
+  name: "next/link",
+  message: "Use Link from src/shared/ui/Link.tsx, which never prefetches.",
+};
 const supabaseSyntax = [
   {
     selector: "ImportExpression[source.value=/^@supabase\\//]",
@@ -126,7 +131,18 @@ const useServerInFunctions = {
   selector: ":function ExpressionStatement[expression.value='use server']",
   message: useServerMessage,
 };
-const restrictedInTests = [...rawHtmlSelectors, ...getSessionSelectors];
+// The CSP runs styles only with its nonce, so a style attribute in server-rendered HTML is
+// refused (T14). Style with a CSS Module class instead.
+const inlineStyle = {
+  selector: "JSXAttribute[name.name='style']",
+  message:
+    "Use a CSS Module class: the CSP refuses inline styles in server-rendered HTML (WEB-ACT-12).",
+};
+const restrictedInTests = [
+  ...rawHtmlSelectors,
+  ...getSessionSelectors,
+  inlineStyle,
+];
 const restrictedEverywhere = [...restrictedInTests, ...testSupportSelectors];
 
 const eslintConfig = defineConfig([
@@ -215,6 +231,7 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         {
+          paths: [nextLinkImport],
           patterns: [
             { group: ["@supabase/*"], message: supabaseMessage },
             { group: dataAccessInternals, message: dataAccessMessage },
@@ -226,6 +243,21 @@ const eslintConfig = defineConfig([
         ...supabaseSyntax,
         ...restrictedEverywhere,
         useServerAnywhere,
+      ],
+    },
+  },
+  // The shared Link, and its test, are the only files that import next/link.
+  {
+    files: ["src/shared/ui/Link.tsx", "src/shared/ui/Link.test.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["@supabase/*"], message: supabaseMessage },
+            { group: dataAccessInternals, message: dataAccessMessage },
+          ],
+        },
       ],
     },
   },
