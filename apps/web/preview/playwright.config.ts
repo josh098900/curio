@@ -22,7 +22,8 @@ export default defineConfig({
     },
     {
       name: "smoke",
-      testMatch: /smoke\.spec\.ts/,
+      // The smoke tests with axe, and the security headers (WEB-ACT-12).
+      testMatch: /(smoke|headers)\.spec\.ts/,
       dependencies: ["app-cookie"],
       use: { ...devices["Desktop Chrome"], storageState: stateFile },
     },
