@@ -161,20 +161,22 @@ export type FakeCall = {
   method: string;
   path: string;
   authorization: string | null;
+  /** The x-request-id it carried (spec §14.3). */
+  requestId: string | null;
   body: string;
 };
 
 type Responder = (
   call: FakeCall,
   request: Request,
+  /** The caller's own signal. A Request's copy can miss the abort once garbage is collected. */
+  signal: AbortSignal | undefined,
 ) => Response | Promise<Response>;
 
 /** A route that never answers, until the request is aborted. */
-export const hangs: Responder = (_call, request) =>
+export const hangs: Responder = (_call, request, signal = request.signal) =>
   new Promise((_resolve, reject) =>
-    request.signal.addEventListener("abort", () =>
-      reject(request.signal.reason),
-    ),
+    signal.addEventListener("abort", () => reject(signal.reason)),
   );
 
 export type FakeNetwork = {
@@ -207,6 +209,7 @@ export function fakeNetwork(
         method: request.method,
         path: url.pathname + url.search,
         authorization: request.headers.get("authorization"),
+        requestId: request.headers.get("x-request-id"),
         body: request.body ? await request.text() : "",
       };
       calls.push(call);
@@ -215,13 +218,25 @@ export function fakeNetwork(
       if (url.pathname === "/auth/v1/.well-known/jwks.json")
         return Response.json({ keys: routes.keys ?? [] });
       if (url.pathname === "/auth/v1/token")
-        return (routes.token ?? refused)(call, request);
+        return (routes.token ?? refused)(
+          call,
+          request,
+          init?.signal ?? undefined,
+        );
       if (url.pathname === "/auth/v1/user")
-        return (routes.user ?? refused)(call, request);
+        return (routes.user ?? refused)(
+          call,
+          request,
+          init?.signal ?? undefined,
+        );
       if (url.pathname.startsWith("/rest/v1/"))
-        return (routes.rpc ?? ok)(call, request);
+        return (routes.rpc ?? ok)(call, request, init?.signal ?? undefined);
       if (url.pathname.startsWith("/functions/v1/"))
-        return (routes.edgeFunction ?? ok)(call, request);
+        return (routes.edgeFunction ?? ok)(
+          call,
+          request,
+          init?.signal ?? undefined,
+        );
       throw new Error(`Unexpected request to ${url.pathname}`);
     }),
   );

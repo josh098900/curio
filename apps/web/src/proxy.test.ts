@@ -1,6 +1,6 @@
 // @vitest-environment node
-// WEB-ACT-11: proxy.ts refreshes the session cookie, never allows or blocks a page by itself,
-// and skips static files (proxy-matcher.test.ts). WEB-ACT-12: it gives every page a CSP with a new
+// WEB-ACT-11: proxy.ts refreshes the session cookie, gives each request an id, never allows or
+// blocks a page by itself, and skips static files (proxy-matcher.test.ts). WEB-ACT-12: it gives every page a CSP with a new
 // nonce, which the page sees too.
 import { NextRequest, type NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -160,6 +160,44 @@ describe("WEB-ACT-11 proxy.ts", () => {
     useSupabaseSettings();
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "not-a-url");
     expectPassedOn(await proxy(requestWith(session.cookie)));
+  });
+
+  it("WEB-ACT-11 gives each request a new id, replacing any the client sent, and the session refresh carries it", async () => {
+    const key = await signingKey();
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const old = sessionCookie(await es256Token(key, claims({ exp: past })), {
+      expiresAt: past,
+    });
+    const network = fakeNetwork({
+      keys: [key.jwk],
+      token: async () =>
+        Response.json(refreshedSession(await es256Token(key, claims()))),
+    });
+    const request = new NextRequest("https://curio.example/plans", {
+      headers: {
+        cookie: `${old.name}=${old.value}`,
+        "x-request-id": "ana@example.com",
+      },
+    });
+
+    const first = await proxy(request);
+    const second = await proxy(requestWith());
+
+    const id = first.headers.get("x-middleware-request-x-request-id");
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(second.headers.get("x-middleware-request-x-request-id")).not.toBe(
+      id,
+    );
+    expect(
+      first.headers.get("x-middleware-override-headers")!.split(","),
+    ).toContain("x-request-id");
+    const refresh = network.calls.find(({ path }) =>
+      path.startsWith("/auth/v1/token"),
+    );
+    expect(refresh?.requestId).toBe(id);
+    expectPassedOn(first);
   });
 });
 

@@ -1,3 +1,4 @@
+import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 import { FIXED_HEADERS } from "./src/shared/security-headers";
 
@@ -14,4 +15,14 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sentry's build step (spec §14.3). With SENTRY_AUTH_TOKEN (§13.3), it uploads the source maps to
+// the SENTRY_ORG and SENTRY_PROJECT named, under the commit, and deletes them from the build;
+// without it, nothing is uploaded. Curio doesn't trace, so that code is left out of the browser's
+// Sentry chunk, and Sentry's own build telemetry is off.
+export default withSentryConfig(nextConfig, {
+  telemetry: false,
+  bundleSizeOptimizations: {
+    excludeDebugStatements: true,
+    excludeTracing: true,
+  },
+});

@@ -69,7 +69,7 @@ describe("UT-ERR-01 every error code has a message", () => {
   });
 });
 
-// The message half of UT-ERR-02; reporting to Sentry comes with T16.
+// The message half of UT-ERR-02. The web app's backend.test.ts checks the report to Sentry.
 describe("UT-ERR-02 an unknown code", () => {
   it("UT-ERR-02 gives the generic message, with no fields", () => {
     const error = parseApiError({

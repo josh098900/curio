@@ -8,6 +8,7 @@ import {
 import { redirect, unstable_rethrow } from "next/navigation";
 import { SIGN_IN_PATH } from "@/shared/navigation";
 import { BackendFailure, oneCallBackend, type Backend } from "./backend";
+import { reportFailure, unexplained } from "./report";
 import { checkSession, type SessionUser } from "./session";
 import { createSupabase } from "./supabase";
 
@@ -56,7 +57,8 @@ function failure(code: ErrorCode): ActionFailure {
  * 1. checks the session with getClaims(), sending anyone signed out to sign in;
  * 2. validates the input, refusing it with field messages before anything reaches the backend;
  * 3. runs `run`, which makes exactly one backend call and turns what it returns into a DTO;
- * 4. maps a failure to its code and message from packages/contracts (WEB-ACT-05).
+ * 4. maps a failure to its code and message from packages/contracts (WEB-ACT-05), reporting
+ *    anything that isn't a Curio code to Sentry without its text (UT-ERR-02).
  */
 export function action<Input, Output>(definition: {
   input: InputParser<Input>;
@@ -66,13 +68,17 @@ export function action<Input, Output>(definition: {
     let supabase;
     try {
       supabase = await createSupabase();
-    } catch {
+    } catch (error) {
+      await reportFailure(error);
       return failure("UNAVAILABLE");
     }
 
     const session = await checkSession(supabase);
     if ("signedOut" in session) redirect(SIGN_IN_PATH);
-    if ("unavailable" in session) return failure("UNAVAILABLE");
+    if ("unavailable" in session) {
+      await reportFailure(unexplained("SessionCheckUnavailable"));
+      return failure("UNAVAILABLE");
+    }
 
     try {
       const parsed = definition.input(raw);
@@ -91,17 +97,14 @@ export function action<Input, Output>(definition: {
     } catch (error) {
       // Next's own redirects and not-found pass straight through.
       unstable_rethrow(error);
+      // The backend has already reported anything that wasn't an answer.
       if (error instanceof BackendFailure) {
         if ("signedOut" in error.outcome) redirect(SIGN_IN_PATH);
         const { code, message, fields } = error.outcome.error;
         return { ok: false, code: code ?? "UNAVAILABLE", message, fields };
       }
-      // A bug in the action. Only its kind is logged: its text could repeat what was submitted
-      // (open question 38, decided on 15 November).
-      console.error(
-        "A server action failed:",
-        error instanceof Error ? error.name : typeof error,
-      );
+      // A bug in the action.
+      await reportFailure(error);
       return failure("UNAVAILABLE");
     }
   }

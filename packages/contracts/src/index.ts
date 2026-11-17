@@ -14,6 +14,7 @@ export {
   ERROR_MESSAGES,
   FIELD_RULE_MESSAGES,
   HTTP_STATUS,
+  isErrorCode,
   parseApiError,
 } from "./errors";
 export type { ApiError, ErrorCode, FieldRule } from "./errors";

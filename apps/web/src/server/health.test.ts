@@ -1,8 +1,12 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { REQUEST_ID } from "../../test/fake-sentry";
 import { databaseAnswers } from "./health";
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => new Headers({ "x-request-id": REQUEST_ID })),
+}));
 
 const url = "https://project.supabase.co";
 const key = "sb_publishable_test";
@@ -22,7 +26,7 @@ describe("databaseAnswers", () => {
     vi.unstubAllEnvs();
   });
 
-  it("asks public.health() through the Data API, with the publishable key only", async () => {
+  it("asks public.health() through the Data API, with the publishable key only and the request id", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", url);
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", key);
     const fetchMock = answer(Response.json(true));
@@ -33,6 +37,7 @@ describe("databaseAnswers", () => {
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("apikey")).toBe(key);
     expect(new Headers(init?.headers).has("authorization")).toBe(false);
+    expect(new Headers(init?.headers).get("x-request-id")).toBe(REQUEST_ID);
   });
 
   it.each([

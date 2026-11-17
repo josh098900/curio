@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { REQUEST_ID_HEADER } from "@/shared/error-reporting";
 import {
   contentSecurityPolicy,
   cspSettings,
@@ -13,25 +14,28 @@ import {
 } from "@/shared/supabase-settings";
 
 /**
- * Refreshes the session cookie and sets the Content Security Policy, and nothing else (spec §13.2,
- * WEB-ACT-11 and WEB-ACT-12). It never allows, redirects or blocks a request: CVE-2025-29927
+ * Refreshes the session cookie, sets the Content Security Policy and gives the request an id, and
+ * nothing else (spec §13.2, §14.3, WEB-ACT-11 and WEB-ACT-12). It never allows, redirects or blocks a request: CVE-2025-29927
  * showed a proxy can be skipped entirely, so every page, server action and route handler checks
  * the user itself. Server components can't write cookies, so this is where an expiring session is
  * refreshed before a page renders. The CSP's nonce must be new for each request, and Next stamps it
  * on a page's own scripts and styles when it finds the CSP on the request, so it's made here too.
+ * The request id follows the request into every Supabase call and error report.
  */
 export async function proxy(request: NextRequest) {
-  const refreshed = await refreshSession(request);
+  const requestId = crypto.randomUUID();
+  const refreshed = await refreshSession(request, requestId);
   const nonce = newNonce();
   const policy = contentSecurityPolicy(nonce, cspSettings());
 
   // The page about to render sees the refreshed cookies, the CSP whose nonce Next stamps on its
-  // scripts and styles, and the nonce itself, for scripts a page adds (Turnstile, Stripe.js).
-  // set() replaces anything the client sent under these names.
+  // scripts and styles, the nonce itself, for scripts a page adds (Turnstile, Stripe.js), and the
+  // request id. set() replaces anything the client sent under these names.
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("content-security-policy", policy);
   requestHeaders.delete("content-security-policy-report-only");
   requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set(REQUEST_ID_HEADER, requestId);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
 
   // The browser gets the refreshed cookies, with the headers that stop a CDN caching the session,
@@ -54,14 +58,20 @@ type Refreshed = {
  * isn't used, and a failure, even settings that won't make a client, changes nothing: who's signed
  * in is decided by the page or action that runs next.
  */
-async function refreshSession(request: NextRequest): Promise<Refreshed> {
+async function refreshSession(
+  request: NextRequest,
+  requestId: string,
+): Promise<Refreshed> {
   const refreshed: Refreshed = { cookies: [], headers: {} };
   const settings = supabaseSettings();
   if (!settings) return refreshed;
   try {
     const supabase = createServerClient(settings.url, settings.publishableKey, {
       cookieOptions: sessionCookieOptions(settings.url),
-      global: { fetch: supabaseFetch },
+      global: {
+        fetch: supabaseFetch,
+        headers: { [REQUEST_ID_HEADER]: requestId },
+      },
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll(cookiesToSet, headers) {
