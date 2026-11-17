@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
+import { BrowserErrorReporter } from "@/shared/browser-errors";
 import { plexSans, plexSansCondensed } from "@/shared/theme/fonts";
 import { ToastProvider } from "@/shared/ui/Toast";
 import "@/shared/theme/tokens.css";
@@ -12,8 +13,8 @@ export const metadata: Metadata = {
 };
 
 /**
- * Every page: the theme, the fonts, the skip link and the toasts. Whether a page has the shell is
- * up to its group: (app) has it for someone signed in, (plain) never does.
+ * Every page: the theme, the fonts, the skip link, the toasts and the error reporter. Whether a page
+ * has the shell is up to its group: (app) has it for someone signed in, (plain) never does.
  */
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Every page renders on request, so each gets the fresh nonce its CSP names: Next can stamp a
@@ -29,6 +30,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           Skip to content
         </a>
         <ToastProvider>{children}</ToastProvider>
+        <BrowserErrorReporter />
       </body>
     </html>
   );

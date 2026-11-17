@@ -1,9 +1,19 @@
 // @vitest-environment node
 // How action() runs an action once the session is checked: the input, the one backend call, and
 // what comes back. every-action.test.ts checks the session rules for every action in the app.
-import { cookies } from "next/headers";
+import { ERROR_MESSAGES } from "@curio/contracts";
+import { getClient } from "@sentry/nextjs";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { SUPABASE_TIMEOUT_MS } from "@/shared/supabase-settings";
 import {
   claims,
@@ -18,10 +28,18 @@ import {
   USER_ID,
   useSupabaseSettings,
 } from "../../test/fake-supabase";
+import {
+  captureReports,
+  REQUEST_ID,
+  sentReports,
+} from "../../test/fake-sentry";
 import { action, noInput, type InputParser } from "./action";
 import { SIGN_IN_PATH } from "@/shared/navigation";
 
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(),
+  headers: vi.fn(async () => new Headers()),
+}));
 
 /** Runs the action signed in, and says where it went if it redirected. */
 async function runSignedIn(
@@ -46,18 +64,19 @@ const anId: InputParser<{ id: string }> = (raw) => {
   return { value: { id } };
 };
 
-describe("action()", () => {
-  beforeEach(() => {
-    pinTheClock();
-    useSupabaseSettings();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
-    vi.restoreAllMocks();
-  });
+beforeEach(() => {
+  pinTheClock();
+  useSupabaseSettings();
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
+describe("action()", () => {
   it("runs with the signed-in user and the checked input, and returns what run returns", async () => {
     const run = vi.fn(async ({ user, input, backend }) => ({
       user: user.id,
@@ -139,22 +158,6 @@ describe("action()", () => {
     ]);
   });
 
-  it("a bug in an action is UNAVAILABLE, and only its kind is logged, never its text", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { result } = await runSignedIn(
-      action({
-        input: noInput,
-        run: async () => {
-          throw new TypeError("Ana Smith's bio was too long");
-        },
-      }),
-    );
-    expect(result).toMatchObject({ ok: false, code: "UNAVAILABLE" });
-    expect(JSON.stringify(result)).not.toContain("Ana");
-    expect(logged).toHaveBeenCalledWith("A server action failed:", "TypeError");
-    expect(JSON.stringify(logged.mock.calls)).not.toContain("Ana");
-  });
-
   it("a redirect from run goes through", async () => {
     const outcome = await runSignedIn(
       action({
@@ -185,28 +188,6 @@ describe("action()", () => {
         throw new TypeError("fetch failed");
       }),
     );
-    const result = await action({ input: noInput, run: async () => "done" })();
-    expect(result).toMatchObject({ ok: false, code: "UNAVAILABLE" });
-  });
-
-  it("is UNAVAILABLE, not signed out, when Auth refuses a refresh for too many requests", async () => {
-    const session = await signedIn();
-    const past = Math.floor(Date.now() / 1000) - 60;
-    vi.mocked(cookies).mockResolvedValue(
-      cookieJar([
-        sessionCookie(await es256Token(session.key, claims({ exp: past })), {
-          expiresAt: past,
-        }),
-      ]) as never,
-    );
-    fakeNetwork({
-      keys: session.keys,
-      token: () =>
-        Response.json(
-          { code: 429, error_code: "over_request_rate_limit", msg: "Too many" },
-          { status: 429 },
-        ),
-    });
     const result = await action({ input: noInput, run: async () => "done" })();
     expect(result).toMatchObject({ ok: false, code: "UNAVAILABLE" });
   });
@@ -267,5 +248,115 @@ describe("action()", () => {
     vi.mocked(cookies).mockResolvedValue(cookieJar() as never);
     const result = await action({ input: noInput, run: async () => "done" })();
     expect(result).toMatchObject({ ok: false, code: "UNAVAILABLE" });
+  });
+});
+
+describe("UT-ERR-02 a failure inside action()", () => {
+  beforeAll(captureReports);
+  beforeEach(() => {
+    vi.mocked(headers).mockResolvedValue(
+      new Headers({ "x-request-id": REQUEST_ID }) as never,
+    );
+  });
+
+  it("UT-ERR-02 the server's Sentry collects nothing about the person", () => {
+    expect(getClient()?.getDataCollectionOptions()).toMatchObject({
+      userInfo: false,
+      cookies: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      stackFrameVariables: false,
+    });
+  });
+
+  it("UT-ERR-02 every Supabase call carries the request id", async () => {
+    const { network } = await runSignedIn(
+      action({
+        input: noInput,
+        run: ({ backend }) => backend.rpc("health", {}),
+      }),
+    );
+    expect(network.calls.length).toBeGreaterThan(1);
+    for (const call of network.calls) expect(call.requestId).toBe(REQUEST_ID);
+  });
+
+  it("UT-ERR-02 a bug in an action shows the generic message, and reaches Sentry with its type and stack, not its text", async () => {
+    const { result } = await runSignedIn(
+      action({
+        input: noInput,
+        run: async () => {
+          throw new TypeError("Ana Smith's bio was too long");
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "UNAVAILABLE",
+      message: ERROR_MESSAGES.UNAVAILABLE,
+    });
+    const reports = await sentReports();
+    expect(reports).toHaveLength(1);
+    const [exception] = reports[0].exception?.values ?? [];
+    expect(exception.type).toBe("TypeError");
+    expect(exception.stacktrace?.frames?.length).toBeGreaterThan(0);
+    expect(reports[0].tags).toMatchObject({ request_id: REQUEST_ID });
+    // The log holds one line, with the error's kind but not its text.
+    const logged = vi.mocked(console.error).mock.calls;
+    expect(logged).toHaveLength(1);
+    expect(JSON.parse(logged[0][0])).toMatchObject({
+      level: "error",
+      kind: "TypeError",
+      request_id: REQUEST_ID,
+    });
+    expect(JSON.stringify([result, reports, logged])).not.toContain("Ana");
+  });
+
+  it("UT-ERR-02 a request id the proxy couldn't have made goes nowhere", async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Headers({ "x-request-id": "ana@example.com" }) as never,
+    );
+    const { network } = await runSignedIn(
+      action({
+        input: noInput,
+        run: async () => {
+          throw new TypeError("bug");
+        },
+      }),
+    );
+    const reports = await sentReports();
+    expect(network.calls.every(({ requestId }) => requestId === null)).toBe(
+      true,
+    );
+    expect(
+      JSON.stringify([reports, vi.mocked(console.error).mock.calls]),
+    ).not.toContain("ana@example.com");
+  });
+
+  it("UT-ERR-02 is UNAVAILABLE, not signed out, when Auth refuses a refresh for too many requests, and is reported", async () => {
+    const session = await signedIn();
+    const past = Math.floor(Date.now() / 1000) - 60;
+    vi.mocked(cookies).mockResolvedValue(
+      cookieJar([
+        sessionCookie(await es256Token(session.key, claims({ exp: past })), {
+          expiresAt: past,
+        }),
+      ]) as never,
+    );
+    fakeNetwork({
+      keys: session.keys,
+      token: () =>
+        Response.json(
+          { code: 429, error_code: "over_request_rate_limit", msg: "Too many" },
+          { status: 429 },
+        ),
+    });
+    const result = await action({ input: noInput, run: async () => "done" })();
+    expect(result).toMatchObject({ ok: false, code: "UNAVAILABLE" });
+    const reports = await sentReports();
+    expect(reports).toHaveLength(1);
+    expect(reports[0].exception?.values?.[0]).toMatchObject({
+      type: "SessionCheckUnavailable",
+      value: "UNAVAILABLE",
+    });
   });
 });

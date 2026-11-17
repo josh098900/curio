@@ -28,7 +28,10 @@ import {
 import { action, isServerAction, noInput, type ServerAction } from "./action";
 import { SIGN_IN_PATH } from "@/shared/navigation";
 
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(),
+  headers: vi.fn(async () => new Headers()),
+}));
 
 const webRoot = path.resolve(import.meta.dirname, "../..");
 

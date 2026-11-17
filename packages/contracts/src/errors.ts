@@ -78,7 +78,7 @@ export interface ApiError {
 // The same short lower-case ids private.raise_error accepts in details.
 const ID = /^[a-z][a-z0-9_]{0,62}$/;
 
-function isErrorCode(value: unknown): value is ErrorCode {
+export function isErrorCode(value: unknown): value is ErrorCode {
   return (
     typeof value === "string" &&
     (ERROR_CODES as readonly string[]).includes(value)

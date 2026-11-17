@@ -6,6 +6,7 @@ import {
   type Database,
 } from "@curio/contracts";
 import { FunctionsHttpError, type PostgrestError } from "@supabase/supabase-js";
+import { reportFailure, unexplained, type FailureTags } from "./report";
 import type { ServerSupabase } from "./supabase";
 
 type Functions = Database["public"]["Functions"];
@@ -74,6 +75,20 @@ export function failureOutcome(
   return { error: parseApiError(body) };
 }
 
+/**
+ * Throws a failed call's outcome, reporting it first when it isn't a Curio code or a 401: those
+ * are answers, and anything else is a fault someone should look at (UT-ERR-02).
+ */
+async function fail(
+  outcome: BackendFailureOutcome,
+  error: unknown,
+  tags: FailureTags,
+): Promise<never> {
+  if ("error" in outcome && outcome.error.code === null)
+    await reportFailure(error, tags);
+  throw new BackendFailure(outcome);
+}
+
 export function oneCallBackend(supabase: ServerSupabase): Backend {
   let called = false;
   function claimTheCall() {
@@ -88,12 +103,21 @@ export function oneCallBackend(supabase: ServerSupabase): Backend {
       let result;
       try {
         result = await (supabase.rpc.bind(supabase) as UntypedRpc)(name, args);
-      } catch {
-        throw new BackendFailure(unavailable);
+      } catch (error) {
+        return fail(unavailable, error, { backend_call: name });
       }
       if (!result.error)
         return result.data as Functions[typeof name]["Returns"];
-      throw new BackendFailure(failureOutcome(result.status, result.error));
+      // A network failure comes back here too, with status 0.
+      return fail(
+        failureOutcome(result.status, result.error),
+        unexplained("BackendError"),
+        {
+          backend_call: name,
+          http_status: result.status,
+          postgres_code: result.error.code || undefined,
+        },
+      );
     },
 
     async edgeFunction(name, body) {
@@ -101,16 +125,20 @@ export function oneCallBackend(supabase: ServerSupabase): Backend {
       let result;
       try {
         result = await supabase.functions.invoke(name, { body });
-      } catch {
-        throw new BackendFailure(unavailable);
+      } catch (error) {
+        return fail(unavailable, error, { backend_call: name });
       }
       if (!result.error) return result.data;
       // A relay or network failure has no Curio body, so it's UNAVAILABLE.
       if (!(result.error instanceof FunctionsHttpError))
-        throw new BackendFailure(unavailable);
+        return fail(unavailable, result.error, { backend_call: name });
       const response = result.error.context as Response;
       const errorBody = await response.json().catch(() => null);
-      throw new BackendFailure(failureOutcome(response.status, errorBody));
+      return fail(
+        failureOutcome(response.status, errorBody),
+        unexplained("EdgeFunctionError"),
+        { backend_call: name, http_status: response.status },
+      );
     },
   };
 }

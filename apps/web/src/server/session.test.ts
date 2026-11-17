@@ -17,7 +17,10 @@ import {
 } from "../../test/fake-supabase";
 import { currentUser, requireUser } from "./session";
 
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(),
+  headers: vi.fn(async () => new Headers()),
+}));
 
 beforeEach(() => {
   pinTheClock();
