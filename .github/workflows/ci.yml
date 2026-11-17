@@ -183,11 +183,19 @@ jobs:
           node-version-file: .nvmrc
           package-manager-cache: false
       # Letting an advisory through takes a visible change to this file: no exceptions in the
-      # package settings, and the advisories come from npm's own registry.
+      # package settings, and the advisories come from npm's own registry. None may be left at
+      # release (spec §14.10).
       - name: Fail on high or critical advisories (NFR-SEC-08)
         run: |
-          if grep -snE 'auditConfig|ignoreCves|ignoreGhsas|ignore-cves|ignore-ghsas' pnpm-workspace.yaml package.json .npmrc; then
+          # -q: with -s alone, a missing file makes grep exit 2 even when a line matches.
+          if grep -qsE 'auditConfig|ignoreCves|ignoreGhsas|ignoreRegistryErrors|ignore-cves|ignore-ghsas|ignore-registry-errors' pnpm-workspace.yaml package.json .npmrc; then
             echo "::error::Audit exceptions aren't allowed in the package settings."
             exit 1
           fi
+          # `pnpm audit --ignore` only records an exception, in this job's copy of the settings.
+          # GHSA-fc5q-39xc-vjpf (ignored 17 November 2026): a ReDoS in picomatch <=4.0.7 when the
+          # glob pattern itself is crafted, with no fixed version yet. Only build tools reach it,
+          # matching patterns from our own config, never anything a user sends. Remove this once
+          # picomatch has a fix.
+          pnpm audit --ignore GHSA-fc5q-39xc-vjpf
           pnpm audit --audit-level high --registry https://registry.npmjs.org/
