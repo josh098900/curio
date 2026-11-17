@@ -144,7 +144,10 @@ jobs:
           printf 'sb_secret_%s\n' "$(random A-Za-z0-9 31)" > "$samples/supabase-secret-key"
           printf 'sbp_%s\n' "$(openssl rand -hex 20)" > "$samples/supabase-access-token"
           printf 're_%s_%s\n' "$(random A-Za-z0-9 8)" "$(random A-Za-z0-9 24)" > "$samples/resend-api-key"
-          printf 'api_key = "%s"\n' "$(random A-Za-z0-9 32)" > "$samples/generic-api-key"
+          # Fixed, not random: gitleaks' generic rule skips a value with no digit, or with a word
+          # from its stopword list inside it ("note", "dark"), so a random one was missed about one
+          # run in 110. No word fits between these digits.
+          printf 'api_key = "%s"\n' "Zq4Wx7Jk2Vb9Mn3Pt8Rc5Hf1Gd6Ls0Ky" > "$samples/generic-api-key"
           for sample in "$samples"/*; do
             if "$RUNNER_TEMP/gitleaks" dir --config .github/gitleaks.toml --no-banner --redact "$sample" > /dev/null 2>&1; then
               echo "::error::No rule caught the made-up $(basename "$sample")."
