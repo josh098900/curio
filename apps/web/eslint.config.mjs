@@ -46,7 +46,10 @@ const dataAccessInternals = [
   "**/server/supabase",
   "**/server/backend",
 ];
-// Every link is the shared Link, which never prefetches (src/shared/ui/Link.tsx says why).
+const restrictedImportPatterns = [
+  { group: ["@supabase/*"], message: supabaseMessage },
+  { group: dataAccessInternals, message: dataAccessMessage },
+];
 const nextLinkImport = {
   name: "next/link",
   message: "Use Link from src/shared/ui/Link.tsx, which never prefetches.",
@@ -230,13 +233,7 @@ const eslintConfig = defineConfig([
     rules: {
       "no-restricted-imports": [
         "error",
-        {
-          paths: [nextLinkImport],
-          patterns: [
-            { group: ["@supabase/*"], message: supabaseMessage },
-            { group: dataAccessInternals, message: dataAccessMessage },
-          ],
-        },
+        { paths: [nextLinkImport], patterns: restrictedImportPatterns },
       ],
       "no-restricted-syntax": [
         "error",
@@ -246,18 +243,14 @@ const eslintConfig = defineConfig([
       ],
     },
   },
-  // The shared Link, and its test, are the only files that import next/link.
+  // The shared Link may import next/link. A later no-restricted-imports replaces an earlier one, so
+  // this keeps the other patterns.
   {
-    files: ["src/shared/ui/Link.tsx", "src/shared/ui/Link.test.tsx"],
+    files: ["src/shared/ui/Link.tsx"],
     rules: {
       "no-restricted-imports": [
         "error",
-        {
-          patterns: [
-            { group: ["@supabase/*"], message: supabaseMessage },
-            { group: dataAccessInternals, message: dataAccessMessage },
-          ],
-        },
+        { patterns: restrictedImportPatterns },
       ],
     },
   },

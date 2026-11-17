@@ -276,15 +276,15 @@ describe("every link is the shared Link, which never prefetches", () => {
   const code =
     'import Link from "next/link";\nexport const A = () => <Link href="/plans">Plans</Link>;\n';
 
-  it.each([
-    "src/app/page.tsx",
-    "src/features/demo/row.tsx",
-    "src/shared/shell/Nav.tsx",
-  ])("next/link is refused in %s", async (filePath) => {
-    expect(await rulesBroken(code, filePath)).toContain(
-      "no-restricted-imports",
-    );
-  });
+  // Button.tsx sits beside the shared Link, so the exemption can't cover its whole folder.
+  it.each(["src/app/page.tsx", "src/shared/ui/Button.tsx"])(
+    "next/link is refused in %s",
+    async (filePath) => {
+      expect(await rulesBroken(code, filePath)).toContain(
+        "no-restricted-imports",
+      );
+    },
+  );
 
   it("the shared Link may use it", async () => {
     expect(await rulesBroken(code, "src/shared/ui/Link.tsx")).not.toContain(
