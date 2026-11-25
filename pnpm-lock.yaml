@@ -12,8 +12,8 @@ importers:
         specifier: 3.10.1
         version: 3.10.1
       supabase:
-        specifier: 3.0.0
-        version: 3.0.0
+        specifier: 3.3.0
+        version: 3.3.0
 
   apps/web:
     dependencies:
@@ -1227,47 +1227,47 @@ packages:
     resolution: {integrity: sha512-WI7KqJRxqZjm77PlRO/VfKretL4SG8g8stWfBmpyx9To+fFapZlSbXA8QkduoMvr72rRpIF24ZLrjktBrp+ZFA==}
     engines: {node: '>=22.0.0'}
 
-  '@supabase/cli-darwin-arm64@3.0.0':
-    resolution: {integrity: sha512-6N/clanDjhKWcPsHBqXcSt7HCZ0bBTjkGGrHgM4834zFu/PBIVBS6u9YJVXxOdQnbwyw/rTwumSYvgwwJgoIug==}
+  '@supabase/cli-darwin-arm64@3.3.0':
+    resolution: {integrity: sha512-ePg+/9ZK+ywjmgX8MWwnlhRfipAlX2ohlWNEEWyvsoATYVEoViH724NpI7hCUAt/7tPvu5mAcyHsg+ayVb3qmw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@supabase/cli-darwin-x64@3.0.0':
-    resolution: {integrity: sha512-e2DKOLIqK82XRp/GSmm0oMXx2CLBSTWJGobro1POPhmn3o+NWRQPI1QvjLFYIeI/9ZfSuo5PUJN4KI9OSjzAng==}
+  '@supabase/cli-darwin-x64@3.3.0':
+    resolution: {integrity: sha512-UADIlr3hiAPbxuiLukjM/+FwSqymFKL4pR0Map8REnx8K5j4TPWyoWJhHHm8KtX9b/1Cw2Q0bVSdU/w5k5V8LA==}
     cpu: [x64]
     os: [darwin]
 
-  '@supabase/cli-linux-arm64-musl@3.0.0':
-    resolution: {integrity: sha512-Bxe2bggo4dLW6tvlA6Qmjzth3VPGNEzjEaxYZohalP+q4jynov6OE6ibeLEdBtalykDMRbUXQ9j7r1p10RI/hQ==}
+  '@supabase/cli-linux-arm64-musl@3.3.0':
+    resolution: {integrity: sha512-U0cgrlngmcBoovmdqD/VR3i0UrKtKd/ccs7Z4CcODc7Uf/xtun+euabR6rPEVdoQKFYyAob/i4GhWSsTWrhvzA==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@supabase/cli-linux-arm64@3.0.0':
-    resolution: {integrity: sha512-sjdzBJGa+zfXSxUczRkqAJpuVgE2PFWXJazYxOnrqYWVPiS9Q0e2m06JdUXwZz/GqxKuLuDQN1OyLFu8DLfQDA==}
+  '@supabase/cli-linux-arm64@3.3.0':
+    resolution: {integrity: sha512-I6+Xmf7N+N+vkKWOiHh10Yo5JFYBVk3kbfbAyRPdIgyR8yke957NtetFxA6ITV3flwi9pIt4NpWxNfpgHiuQJw==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@supabase/cli-linux-x64-musl@3.0.0':
-    resolution: {integrity: sha512-ANyJ6h2X4HgM8f3PAFLGNH1XzYNho2M4kev/z5Ryq6on3ArI9FA+4KrrUqs1SFGji8E5WGyx/H+CHxmcXf5rTg==}
+  '@supabase/cli-linux-x64-musl@3.3.0':
+    resolution: {integrity: sha512-TuwignxFsxLhIaDGgujZGwyg0QpOQlnmZp4sqsTb3UW14QD6rPOFa0PfGBNo7um4cSqYQo6VZe18HLWe5CdHdA==}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@supabase/cli-linux-x64@3.0.0':
-    resolution: {integrity: sha512-cR4S5e3nygMaBShbbt6FOiMumtrFJjwdKMXMimC1y7FpxITlwLv36BveaifQZ8aY+v1u+w8oYANU2H72Y4ibWA==}
+  '@supabase/cli-linux-x64@3.3.0':
+    resolution: {integrity: sha512-5bVWEI9ysK3D40+tx1EYhGwhfe2sQ3wuNkK7RvKgrsANlriH39jP7zHLGtAArQ91EUQctkx++VqIEVr0NcfgDw==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@supabase/cli-windows-arm64@3.0.0':
-    resolution: {integrity: sha512-Xox3X7BXpe+/X9XpAgo5/Qrv5qtJaItc3gLlAwJ2d2AcGrBnfh4/b0MvbNbyO7I2Fj1c7yrPmMI4lEicVvIGGw==}
+  '@supabase/cli-windows-arm64@3.3.0':
+    resolution: {integrity: sha512-Hy6NnCpohlqvXzN/GOdpAMaXq0c2ZpDvTyb8IJtHV+r3miu5EUqD+1/yBJp62BfsRXMTGizGowL4qsbAcpYQSw==}
     cpu: [arm64]
     os: [win32]
 
-  '@supabase/cli-windows-x64@3.0.0':
-    resolution: {integrity: sha512-nBfd1Rz8MwstIJXHo5fyIQgjmYgLxDbBIuCmuttYAQwTafc7jUOofIAAUUARkhalHu0kBOEyRuEqe2rfKr/l5w==}
+  '@supabase/cli-windows-x64@3.3.0':
+    resolution: {integrity: sha512-3jSKk6W9hAr3R9LKxrfDKCkv+VFii3ydsdhAm8+yF039NEDeNq95D8NwsokQMmYPeXgr3si33gWaHqlQWNQfZg==}
     cpu: [x64]
     os: [win32]
 
@@ -2503,8 +2503,8 @@ packages:
     resolution: {integrity: sha512-H0dkQoCa3b2VEeKQBOxFph+JAbcrQdE7KC0UkqwpLmv2EC4P41QXP+rqo9wYodACiG5/WM5s9oDApTU8utwj9g==}
     engines: {node: '>= 0.4'}
 
-  jose@6.2.15:
-    resolution: {integrity: sha512-qdF6ewcZARtef63fJ9AKKZPgxw+t7USH6HLXYcD4CrdmSvDp79rpJSPFEKc90QBeGS63u1KQtN2MZQHC0yDIzA==}
+  jose@6.2.18:
+    resolution: {integrity: sha512-doV4thUwgkrycJH4yLeqwTGIIZphHl+pk7CPReuMIhYhncmgzdko85MaCG4YQFTxqMFr1/oEH32tZuKKovcDEg==}
 
   jpeg-js@0.4.4:
     resolution: {integrity: sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==}
@@ -3093,6 +3093,10 @@ packages:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
 
+  source-map-js@1.2.4:
+    resolution: {integrity: sha512-J7ZjMvHd9O1fcT/5V09QWaaSl2BbWx3F6O08spde82Namf9UB0GxRVIPiNbVsdKkoizHiSpTodo3vp2bAy91MA==}
+    engines: {node: '>=6.0.0'}
+
   source-map@0.6.1:
     resolution: {integrity: sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==}
     engines: {node: '>=0.10.0'}
@@ -3185,8 +3189,8 @@ packages:
       babel-plugin-macros:
         optional: true
 
-  supabase@3.0.0:
-    resolution: {integrity: sha512-FB+V+RzXYTmCzbchaN3CUdxLPpcKzJd4RSOc/dAE6cAtI7TZE8J5OLJYXjJae9C/fbi2xxzZJLL/Y2N1zbzf9A==}
+  supabase@3.3.0:
+    resolution: {integrity: sha512-r0duXpzkwrQ3tT+3HgwK3sJ4tmANpnrMkokZoysitUpPVshXHQhpPNKhGA55OrpAcl0JrZgC2prsGRGDbv8AfQ==}
     hasBin: true
 
   supports-color@7.2.0:
@@ -4440,28 +4444,28 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@supabase/cli-darwin-arm64@3.0.0':
+  '@supabase/cli-darwin-arm64@3.3.0':
     optional: true
 
-  '@supabase/cli-darwin-x64@3.0.0':
+  '@supabase/cli-darwin-x64@3.3.0':
     optional: true
 
-  '@supabase/cli-linux-arm64-musl@3.0.0':
+  '@supabase/cli-linux-arm64-musl@3.3.0':
     optional: true
 
-  '@supabase/cli-linux-arm64@3.0.0':
+  '@supabase/cli-linux-arm64@3.3.0':
     optional: true
 
-  '@supabase/cli-linux-x64-musl@3.0.0':
+  '@supabase/cli-linux-x64-musl@3.3.0':
     optional: true
 
-  '@supabase/cli-linux-x64@3.0.0':
+  '@supabase/cli-linux-x64@3.3.0':
     optional: true
 
-  '@supabase/cli-windows-arm64@3.0.0':
+  '@supabase/cli-windows-arm64@3.3.0':
     optional: true
 
-  '@supabase/cli-windows-x64@3.0.0':
+  '@supabase/cli-windows-x64@3.3.0':
     optional: true
 
   '@supabase/functions-js@2.119.0':
@@ -5842,7 +5846,7 @@ snapshots:
       has-symbols: 1.1.0
       set-function-name: 2.0.2
 
-  jose@6.2.15: {}
+  jose@6.2.18: {}
 
   jpeg-js@0.4.4: {}
 
@@ -6267,7 +6271,7 @@ snapshots:
     dependencies:
       nanoid: 3.3.20
       picocolors: 1.1.1
-      source-map-js: 1.2.2
+      source-map-js: 1.2.4
 
   powershell-utils@0.2.1: {}
 
@@ -6554,6 +6558,8 @@ snapshots:
 
   source-map-js@1.2.2: {}
 
+  source-map-js@1.2.4: {}
+
   source-map@0.6.1: {}
 
   speedline-core@1.4.3:
@@ -6666,19 +6672,19 @@ snapshots:
     optionalDependencies:
       '@babel/core': 7.29.13
 
-  supabase@3.0.0:
+  supabase@3.3.0:
     dependencies:
       eciesjs: 0.5.0
-      jose: 6.2.15
+      jose: 6.2.18
     optionalDependencies:
-      '@supabase/cli-darwin-arm64': 3.0.0
-      '@supabase/cli-darwin-x64': 3.0.0
-      '@supabase/cli-linux-arm64': 3.0.0
-      '@supabase/cli-linux-arm64-musl': 3.0.0
-      '@supabase/cli-linux-x64': 3.0.0
-      '@supabase/cli-linux-x64-musl': 3.0.0
-      '@supabase/cli-windows-arm64': 3.0.0
-      '@supabase/cli-windows-x64': 3.0.0
+      '@supabase/cli-darwin-arm64': 3.3.0
+      '@supabase/cli-darwin-x64': 3.3.0
+      '@supabase/cli-linux-arm64': 3.3.0
+      '@supabase/cli-linux-arm64-musl': 3.3.0
+      '@supabase/cli-linux-x64': 3.3.0
+      '@supabase/cli-linux-x64-musl': 3.3.0
+      '@supabase/cli-windows-arm64': 3.3.0
+      '@supabase/cli-windows-x64': 3.3.0
 
   supports-color@7.2.0:
     dependencies:
